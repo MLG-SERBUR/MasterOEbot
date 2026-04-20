@@ -1,2 +1,14 @@
+# Maven / Java build output
 /target/
-/config.yaml
+*.class
+
+# IDE files
+/.idea/
+*.iml
+/.vscode/
+
+# OS files
+.DS_Store
+
+# Runtime/config secrets
+config.yaml
