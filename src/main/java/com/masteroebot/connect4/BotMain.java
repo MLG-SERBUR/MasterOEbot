@@ -7,6 +7,7 @@ import javax.security.auth.login.LoginException;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 
 public class BotMain {
     public static void main(String[] args) throws LoginException, InterruptedException, IOException {
@@ -16,6 +17,7 @@ public class BotMain {
         Connect4CommandListener listener = new Connect4CommandListener();
 
         JDA jda = JDABuilder.createDefault(config.token())
+                .enableIntents(GatewayIntent.MESSAGE_CONTENT)
                 .addEventListeners(listener)
                 .build()
                 .awaitReady();

@@ -1,6 +1,6 @@
 # MasterOEbot
 
-A Java Discord bot implementing `/connect4` with JDA.
+A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback when slash commands are unavailable.
 
 ## Requirements
 - Java 21+
@@ -25,7 +25,7 @@ A Java Discord bot implementing `/connect4` with JDA.
 2. Create a new application.
 3. Open **Bot** tab and click **Add Bot**.
 4. Under **Privileged Gateway Intents**:
-   - Not required for this slash-command-only bot.
+   - Enable **Message Content Intent** if you want prefix fallback commands like `!connect4`.
 5. In **Bot Permissions**, ensure your invite grants at least:
    - View Channels
    - Send Messages
@@ -53,8 +53,11 @@ java -jar target/masteroebot-1.0.0.jar
 ## Command usage
 1. Start game in a channel and select both players:
    - `/connect4 player1:@UserA player2:@UserB`
+   - `!connect4 @UserA @UserB`
 2. Players place moves on their turn:
    - `/connect4 move:F7`
+   - `!connect4 F7`
+   - `!connect4 move F7`
 
 Board format:
 ```text

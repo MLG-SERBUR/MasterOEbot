@@ -12,3 +12,5 @@
 
 # Runtime/config secrets
 config.yaml
+/.codex
+/.codex/
