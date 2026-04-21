@@ -26,6 +26,7 @@ A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback 
 3. Open **Bot** tab and click **Add Bot**.
 4. Under **Privileged Gateway Intents**:
    - Enable **Message Content Intent** if you want prefix fallback commands like `!connect4`.
+   - If Discord denies it, the bot will still start and use slash commands only.
 5. In **Bot Permissions**, ensure your invite grants at least:
    - View Channels
    - Send Messages

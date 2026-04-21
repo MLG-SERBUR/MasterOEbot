@@ -16,7 +16,12 @@ import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 public class Connect4CommandListener extends ListenerAdapter {
     private static final String PREFIX_COMMAND = "!connect4";
 
+    private final boolean prefixFallbackEnabled;
     private final Map<Long, Connect4Game> gamesByChannel = new ConcurrentHashMap<>();
+
+    public Connect4CommandListener(boolean prefixFallbackEnabled) {
+        this.prefixFallbackEnabled = prefixFallbackEnabled;
+    }
 
     public void registerCommands(CommandListUpdateAction updater) {
         updater.addCommands(
@@ -143,11 +148,18 @@ public class Connect4CommandListener extends ListenerAdapter {
     }
 
     private CommandResponse helpResponse(boolean prefixMode) {
-        return CommandResponse.ephemeral(String.format(
-                "Start game: %s%nPlay move: %s%nSlash also supported: `/connect4 player1:@User1 player2:@User2` and `/connect4 move:F7`.",
+        StringBuilder message = new StringBuilder();
+        message.append(String.format("Start game: %s%nPlay move: %s%n",
                 startUsage(prefixMode),
-                moveUsage(prefixMode)
-        ));
+                moveUsage(prefixMode)));
+
+        if (prefixFallbackEnabled) {
+            message.append("Slash also supported: `/connect4 player1:@User1 player2:@User2` and `/connect4 move:F7`.");
+        } else {
+            message.append("Slash only. Prefix fallback disabled because `MESSAGE_CONTENT` intent was unavailable.");
+        }
+
+        return CommandResponse.ephemeral(message.toString());
     }
 
     private void reply(SlashCommandInteractionEvent event, CommandResponse response) {
