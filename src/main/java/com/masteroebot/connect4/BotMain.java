@@ -7,6 +7,10 @@ import java.util.concurrent.TimeUnit;
 
 import javax.security.auth.login.LoginException;
 
+import com.masteroebot.markov.MarkovConfig;
+import com.masteroebot.markov.MarkovListener;
+import com.masteroebot.markov.MarkovManager;
+
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
@@ -20,22 +24,49 @@ public class BotMain {
         Path configPath = Path.of("config.yaml");
         BotConfig config = BotConfig.load(configPath);
 
-        BootResult boot = startBot(config.token(), true);
+        MarkovManager markovManager = new MarkovManager();
+        MarkovConfig markovConfig = new MarkovConfig();
+        markovConfig.load();
+
+        BootResult boot = startBot(config.token(), true, markovManager, markovConfig);
+        boolean markovAvailable = (boot != null && boot.markovListener() != null);
+
         if (boot == null) {
-            boot = startBot(config.token(), false);
+            boot = startBot(config.token(), false, markovManager, markovConfig);
+            markovAvailable = false;
         }
 
+        final BootResult finalBoot = boot;
         Connect4CommandListener listener = boot.listener();
         JDA jda = boot.jda();
+        listener.setMarkovAvailable(markovAvailable);
         listener.registerCommands(jda.updateCommands());
         System.out.println("Connect4 bot is online.");
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (finalBoot.markovListener() != null) {
+                finalBoot.markovListener().shutdown();
+            }
+        }));
     }
 
-    private static BootResult startBot(String token, boolean enableMessageContent) throws LoginException, InterruptedException {
-        Connect4CommandListener listener = new Connect4CommandListener(enableMessageContent);
+    private static BootResult startBot(String token, boolean enableMessageContent,
+                                       MarkovManager markovManager, MarkovConfig markovConfig)
+            throws LoginException, InterruptedException {
+        Connect4CommandListener listener = new Connect4CommandListener(enableMessageContent, markovManager, markovConfig);
+        MarkovListener markovListener = null;
+
+        if (enableMessageContent) {
+            markovListener = new MarkovListener(markovManager, markovConfig, null);
+        }
+
         StartupProbe probe = new StartupProbe();
         JDABuilder builder = JDABuilder.createDefault(token)
                 .addEventListeners(listener, probe);
+
+        if (markovListener != null) {
+            builder.addEventListeners(markovListener);
+        }
 
         if (enableMessageContent) {
             builder.enableIntents(GatewayIntent.MESSAGE_CONTENT);
@@ -46,7 +77,7 @@ public class BotMain {
 
         if (outcome == StartupOutcome.DISALLOWED_INTENTS && enableMessageContent) {
             jda.shutdownNow();
-            System.err.println("MESSAGE_CONTENT denied by Discord. Restarting without prefix fallback.");
+            System.err.println("MESSAGE_CONTENT denied by Discord. Markov feature disabled, other features remain active.");
             return null;
         }
 
@@ -57,10 +88,14 @@ public class BotMain {
             throw new IllegalStateException("Timed out waiting for Discord startup.");
         }
 
-        return new BootResult(jda, listener);
+        if (markovListener != null) {
+            markovListener.setJDA(jda);
+        }
+
+        return new BootResult(jda, listener, markovListener);
     }
 
-    private record BootResult(JDA jda, Connect4CommandListener listener) {
+    private record BootResult(JDA jda, Connect4CommandListener listener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {

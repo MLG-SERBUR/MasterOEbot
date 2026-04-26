@@ -4,13 +4,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.masteroebot.markov.MarkovConfig;
+import com.masteroebot.markov.MarkovManager;
+
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 
 public class Connect4CommandListener extends ListenerAdapter {
@@ -18,9 +23,24 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     private final boolean prefixFallbackEnabled;
     private final Map<Long, Connect4Game> gamesByChannel = new ConcurrentHashMap<>();
+    private final MarkovManager markovManager;
+    private final MarkovConfig markovConfig;
+    private boolean markovAvailable = false;
 
     public Connect4CommandListener(boolean prefixFallbackEnabled) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
+        this.markovManager = null;
+        this.markovConfig = null;
+    }
+
+    public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager, MarkovConfig markovConfig) {
+        this.prefixFallbackEnabled = prefixFallbackEnabled;
+        this.markovManager = markovManager;
+        this.markovConfig = markovConfig;
+    }
+
+    public void setMarkovAvailable(boolean available) {
+        this.markovAvailable = available;
     }
 
     public void registerCommands(CommandListUpdateAction updater) {
@@ -28,16 +48,26 @@ public class Connect4CommandListener extends ListenerAdapter {
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player2", "Second player (required to start game)")
-                        .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.STRING, "move", "Move like F7 (used after game starts)")
+                        .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.STRING, "move", "Move like F7 (used after game starts)"),
+                Commands.slash("markov", "Toggle Markov chain feature")
+                        .addSubcommands(
+                                new SubcommandData("toggle", "Toggle Markov on/off for this server"),
+                                new SubcommandData("status", "Check Markov status for this server")
+                        )
         ).queue(
-                success -> System.out.println("Registered /connect4 slash command."),
-                error -> System.err.println("Slash command registration failed; !connect4 fallback still available. " + error.getMessage())
+                success -> System.out.println("Registered slash commands."),
+                error -> System.err.println("Slash command registration failed. " + error.getMessage())
         );
     }
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!"connect4".equals(event.getName())) {
+        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName())) {
+            return;
+        }
+
+        if ("markov".equals(event.getName())) {
+            handleMarkovCommand(event);
             return;
         }
 
@@ -58,6 +88,53 @@ public class Connect4CommandListener extends ListenerAdapter {
         }
 
         reply(event, startGame(channelId, p1, p2, false));
+    }
+
+    private void handleMarkovCommand(SlashCommandInteractionEvent event) {
+        if (!markovAvailable || markovManager == null || markovConfig == null) {
+            event.reply("Markov feature is not available (MESSAGE_CONTENT intent not granted).").setEphemeral(true).queue();
+            return;
+        }
+
+        if (!event.isFromGuild()) {
+            event.reply("This command can only be used in a server.").setEphemeral(true).queue();
+            return;
+        }
+
+        long channelId = event.getChannel().getIdLong();
+        String subcommand = event.getSubcommandName();
+
+        if ("toggle".equals(subcommand)) {
+            boolean current = markovConfig.isEnabled(channelId);
+            boolean newState = !current;
+            markovConfig.setEnabled(channelId, newState);
+
+            if (newState && markovManager.isEmpty(channelId)) {
+                seedFromHistory(event, channelId);
+            }
+
+            event.reply("Markov feature " + (newState ? "enabled" : "disabled") + " for this channel.").queue();
+        } else if ("status".equals(subcommand)) {
+            boolean enabled = markovConfig.isEnabled(channelId);
+            event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
+        } else {
+            event.reply("Unknown subcommand.").setEphemeral(true).queue();
+        }
+    }
+
+    private void seedFromHistory(SlashCommandInteractionEvent event, long channelId) {
+        event.getChannel().getHistory().retrievePast(100).queue(messages -> {
+            java.util.List<String> history = new java.util.ArrayList<>();
+            for (net.dv8tion.jda.api.entities.Message msg : messages) {
+                if (!msg.getAuthor().isBot() && !msg.getContentRaw().trim().isEmpty()) {
+                    history.add(msg.getContentRaw().trim());
+                }
+            }
+            if (!history.isEmpty()) {
+                markovManager.seedFromHistory(channelId, history);
+                event.getChannel().sendMessage("Brain seeded with " + history.size() + " messages from channel history.").queue();
+            }
+        });
     }
 
     @Override
