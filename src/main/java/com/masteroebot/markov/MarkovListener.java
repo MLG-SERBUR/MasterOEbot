@@ -72,13 +72,13 @@ public class MarkovListener extends ListenerAdapter {
             if (!reply.isEmpty()) {
                 event.getChannel().sendMessage(reply).queue();
 
-                if (rand.nextDouble() < 0.30) {
+                if (rand.nextDouble() < 0.1) {
                     scheduler.schedule(() -> {
                         String secondReply = sanitizeOutput(generateReplyWithSeed(channelId, content));
                         if (!secondReply.isEmpty()) {
                             event.getChannel().sendMessage(secondReply).queue();
                         }
-                    }, 1 + rand.nextInt(3), TimeUnit.SECONDS);
+                    }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
                 }
             }
         }
