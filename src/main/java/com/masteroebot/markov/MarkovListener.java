@@ -10,6 +10,7 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 public class MarkovListener extends ListenerAdapter {
     private final MarkovManager manager;
@@ -17,6 +18,7 @@ public class MarkovListener extends ListenerAdapter {
     private JDA jda;
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this.manager = manager;
@@ -26,6 +28,11 @@ public class MarkovListener extends ListenerAdapter {
 
     public void setJDA(JDA jda) {
         this.jda = jda;
+    }
+
+    private String sanitizeOutput(String text) {
+        if (text == null) return "";
+        return MENTION_PATTERN.matcher(text).replaceAll("");
     }
 
     @Override
@@ -61,13 +68,13 @@ public class MarkovListener extends ListenerAdapter {
         boolean shouldReply = mentioned || rand.nextDouble() < 0.05;
 
         if (shouldReply) {
-            String reply = manager.generateReply(channelId);
+            String reply = sanitizeOutput(generateReplyWithSeed(channelId, content));
             if (!reply.isEmpty()) {
                 event.getChannel().sendMessage(reply).queue();
 
                 if (rand.nextDouble() < 0.30) {
                     scheduler.schedule(() -> {
-                        String secondReply = manager.generateReply(channelId);
+                        String secondReply = sanitizeOutput(generateReplyWithSeed(channelId, content));
                         if (!secondReply.isEmpty()) {
                             event.getChannel().sendMessage(secondReply).queue();
                         }
@@ -75,6 +82,20 @@ public class MarkovListener extends ListenerAdapter {
                 }
             }
         }
+    }
+
+    private String generateReplyWithSeed(long channelId, String originalMessage) {
+        if (rand.nextDouble() < 0.35) {
+            String[] words = originalMessage.split("\\s+");
+            String[] validWords = Arrays.stream(words)
+                    .filter(w -> w.length() > 2)
+                    .toArray(String[]::new);
+            if (validWords.length > 0) {
+                String seedWord = validWords[rand.nextInt(validWords.length)];
+                return manager.generateReply(channelId, seedWord);
+            }
+        }
+        return manager.generateReply(channelId);
     }
 
     public void shutdown() {

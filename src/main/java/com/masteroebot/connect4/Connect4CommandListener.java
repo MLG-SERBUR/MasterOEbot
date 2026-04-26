@@ -126,8 +126,8 @@ public class Connect4CommandListener extends ListenerAdapter {
         event.getChannel().getHistory().retrievePast(100).queue(messages -> {
             java.util.List<String> history = new java.util.ArrayList<>();
             for (net.dv8tion.jda.api.entities.Message msg : messages) {
-                if (!msg.getAuthor().isBot() && !msg.getContentRaw().trim().isEmpty()) {
-                    history.add(msg.getContentRaw().trim());
+                if (!msg.getAuthor().isBot() && !msg.getContentDisplay().trim().isEmpty()) {
+                    history.add(msg.getContentDisplay().trim());
                 }
             }
             if (!history.isEmpty()) {
