@@ -85,7 +85,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private String generateReplyWithSeed(long channelId, String originalMessage) {
-        if (rand.nextDouble() < 0.35) {
+        if (rand.nextDouble() < 0.1) {
             String[] words = originalMessage.split("\\s+");
             String[] validWords = Arrays.stream(words)
                     .filter(w -> w.length() > 2)
