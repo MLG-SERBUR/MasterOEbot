@@ -72,7 +72,7 @@ public class MarkovListener extends ListenerAdapter {
 
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
-        if (directlyAddressed || rand.nextDouble() < 0.05) {
+        if (directlyAddressed || rand.nextDouble() < 0.01) {
             sendMarkovReplies(event, channelId, content);
             return;
         }
