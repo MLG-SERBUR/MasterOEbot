@@ -2,6 +2,7 @@ package com.masteroebot.markov;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.entities.MessageReference;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -63,25 +64,48 @@ public class MarkovListener extends ListenerAdapter {
         String botName = jda.getSelfUser().getName().toLowerCase();
         String lowerContent = content.toLowerCase();
 
-        boolean mentioned = lowerContent.contains(botName);
+        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
-        boolean shouldReply = mentioned || rand.nextDouble() < 0.05;
+        if (directlyAddressed || rand.nextDouble() < 0.05) {
+            sendMarkovReplies(event, channelId, content);
+            return;
+        }
 
-        if (shouldReply) {
-            String reply = sanitizeOutput(generateReplyWithSeed(channelId, content));
-            if (!reply.isEmpty()) {
-                event.getChannel().sendMessage(reply).queue();
-
-                if (rand.nextDouble() < 0.1) {
-                    scheduler.schedule(() -> {
-                        String secondReply = sanitizeOutput(generateReplyWithSeed(channelId, content));
-                        if (!secondReply.isEmpty()) {
-                            event.getChannel().sendMessage(secondReply).queue();
-                        }
-                    }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
+        MessageReference reference = message.getMessageReference();
+        if (reference != null && message.getReferencedMessage() == null) {
+            reference.resolve().queue(referenced -> {
+                if (isMessageFromSelf(referenced)) {
+                    sendMarkovReplies(event, channelId, content);
                 }
+            });
+        }
+    }
+
+    private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
+        String reply = sanitizeOutput(generateReplyWithSeed(channelId, content));
+        if (!reply.isEmpty()) {
+            event.getChannel().sendMessage(reply).queue();
+
+            if (rand.nextDouble() < 0.1) {
+                scheduler.schedule(() -> {
+                    String secondReply = sanitizeOutput(generateReplyWithSeed(channelId, content));
+                    if (!secondReply.isEmpty()) {
+                        event.getChannel().sendMessage(secondReply).queue();
+                    }
+                }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
             }
         }
+    }
+
+    private boolean isReplyToSelf(Message message) {
+        return isMessageFromSelf(message.getReferencedMessage());
+    }
+
+    private boolean isMessageFromSelf(Message message) {
+        return message != null
+                && jda != null
+                && jda.getSelfUser() != null
+                && message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong();
     }
 
     private String generateReplyWithSeed(long channelId, String originalMessage) {
