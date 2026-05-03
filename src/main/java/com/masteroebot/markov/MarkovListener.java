@@ -24,6 +24,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
     private static final double MIN_RESPONSE_CHANCE = 0.50;
+    private static final int FIRST_REPLY_MAX_DELAY_SECONDS = 5;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this.manager = manager;
@@ -108,20 +109,33 @@ public class MarkovListener extends ListenerAdapter {
     private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
         String reply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
         if (!reply.isEmpty()) {
-            event.getChannel().sendMessage(reply)
-                    .setAllowedMentions(Collections.emptyList())
-                    .queue();
+            int delaySeconds = rand.nextInt(FIRST_REPLY_MAX_DELAY_SECONDS + 1);
+            Runnable sendReply = () -> {
+                event.getChannel().sendMessage(reply)
+                        .setAllowedMentions(Collections.emptyList())
+                        .queue();
+                scheduleSecondReply(event, channelId, content);
+            };
 
-            if (rand.nextDouble() < 0.1) {
-                scheduler.schedule(() -> {
-                    String secondReply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
-                    if (!secondReply.isEmpty()) {
-                        event.getChannel().sendMessage(secondReply)
-                                .setAllowedMentions(Collections.emptyList())
-                                .queue();
-                    }
-                }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
+            if (delaySeconds == 0) {
+                sendReply.run();
+            } else {
+                event.getChannel().sendTyping().queue();
+                scheduler.schedule(sendReply, delaySeconds, TimeUnit.SECONDS);
             }
+        }
+    }
+
+    private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
+        if (rand.nextDouble() < 0.1) {
+            scheduler.schedule(() -> {
+                String secondReply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
+                if (!secondReply.isEmpty()) {
+                    event.getChannel().sendMessage(secondReply)
+                            .setAllowedMentions(Collections.emptyList())
+                            .queue();
+                }
+            }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
         }
     }
 
