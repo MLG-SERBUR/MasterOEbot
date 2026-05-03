@@ -36,6 +36,12 @@ public class MarkovListener extends ListenerAdapter {
         return MENTION_PATTERN.matcher(text).replaceAll("");
     }
 
+    private String escapeMassMentions(String text) {
+        if (text == null) return "";
+        return text.replace("@everyone", "@\u200beveryone")
+                .replace("@here", "@\u200bhere");
+    }
+
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
         if (!event.isFromGuild()) return;
@@ -82,15 +88,19 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
-        String reply = sanitizeOutput(generateReplyWithSeed(channelId, content));
+        String reply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
         if (!reply.isEmpty()) {
-            event.getChannel().sendMessage(reply).queue();
+            event.getChannel().sendMessage(reply)
+                    .setAllowedMentions(Collections.emptyList())
+                    .queue();
 
             if (rand.nextDouble() < 0.1) {
                 scheduler.schedule(() -> {
-                    String secondReply = sanitizeOutput(generateReplyWithSeed(channelId, content));
+                    String secondReply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
                     if (!secondReply.isEmpty()) {
-                        event.getChannel().sendMessage(secondReply).queue();
+                        event.getChannel().sendMessage(secondReply)
+                                .setAllowedMentions(Collections.emptyList())
+                                .queue();
                     }
                 }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
             }
