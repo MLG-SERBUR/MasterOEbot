@@ -19,7 +19,11 @@ public class MarkovListener extends ListenerAdapter {
     private JDA jda;
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
+    private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
+    private static final double RESPONSE_DAMPENING_STEP = 0.05;
+    private static final double MIN_RESPONSE_CHANCE = 0.50;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this.manager = manager;
@@ -60,6 +64,8 @@ public class MarkovListener extends ListenerAdapter {
 
         if (content == null || content.trim().isEmpty()) return;
 
+        boolean responseAllowed = shouldRespondAfterDampening(channelId);
+
         boolean isBot = message.getAuthor().isBot();
 
         if (!isBot) {
@@ -72,7 +78,7 @@ public class MarkovListener extends ListenerAdapter {
 
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
-        if (directlyAddressed || rand.nextDouble() < 0.01) {
+        if (responseAllowed && (directlyAddressed || rand.nextDouble() < 0.01)) {
             sendMarkovReplies(event, channelId, content);
             return;
         }
@@ -80,11 +86,23 @@ public class MarkovListener extends ListenerAdapter {
         MessageReference reference = message.getMessageReference();
         if (reference != null && message.getReferencedMessage() == null) {
             reference.resolve().queue(referenced -> {
-                if (isMessageFromSelf(referenced)) {
+                if (responseAllowed && isMessageFromSelf(referenced)) {
                     sendMarkovReplies(event, channelId, content);
                 }
             });
         }
+    }
+
+    private synchronized boolean shouldRespondAfterDampening(long channelId) {
+        long now = System.currentTimeMillis();
+        Deque<Long> recentMessages = recentMessagesByChannel.computeIfAbsent(channelId, id -> new ArrayDeque<>());
+        while (!recentMessages.isEmpty() && now - recentMessages.peekFirst() >= RESPONSE_DAMPENING_WINDOW_MS) {
+            recentMessages.removeFirst();
+        }
+
+        recentMessages.addLast(now);
+        double responseChance = Math.max(MIN_RESPONSE_CHANCE, 1.0 - recentMessages.size() * RESPONSE_DAMPENING_STEP);
+        return rand.nextDouble() < responseChance;
     }
 
     private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
