@@ -44,4 +44,39 @@ class Connect4GameTest {
         assertEquals(1L, game.getWinnerId());
         assertTrue(game.isFinished());
     }
+
+    @Test
+    void botChoosesCenterColumnOnEmptyBoard() {
+        Connect4Game game = new Connect4Game(1L, 2L);
+
+        assertEquals("F4", game.chooseBotMove());
+    }
+
+    @Test
+    void botChoosesWinningMoveBeforeBlock() {
+        Connect4Game game = new Connect4Game(1L, 2L);
+
+        game.makeMove(1L, "F1");
+        game.makeMove(2L, "F7");
+        game.makeMove(1L, "F2");
+        game.makeMove(2L, "E7");
+        game.makeMove(1L, "F3");
+        game.makeMove(2L, "D7");
+
+        assertEquals("F4", game.chooseBotMove());
+    }
+
+    @Test
+    void botBlocksOpponentWinningMove() {
+        Connect4Game game = new Connect4Game(1L, 2L);
+
+        game.makeMove(1L, "F1");
+        game.makeMove(2L, "F7");
+        game.makeMove(1L, "F2");
+        game.makeMove(2L, "E7");
+        game.makeMove(1L, "E1");
+        game.makeMove(2L, "D7");
+
+        assertEquals("C7", game.chooseBotMove());
+    }
 }

@@ -78,9 +78,10 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         long channelId = event.getChannel().getIdLong();
         OptionMapping moveOption = event.getOption("move");
+        long selfBotId = event.getJDA().getSelfUser().getIdLong();
 
         if (moveOption != null) {
-            reply(event, processMove(event.getUser().getIdLong(), channelId, moveOption.getAsString(), false));
+            reply(event, processMove(event.getUser().getIdLong(), channelId, moveOption.getAsString(), false, selfBotId));
             return;
         }
 
@@ -92,7 +93,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             return;
         }
 
-        reply(event, startGame(channelId, p1, p2, false));
+        reply(event, startGame(channelId, p1, p2, false, selfBotId));
     }
 
     private void handleMarkovCommand(SlashCommandInteractionEvent event) {
@@ -171,19 +172,21 @@ public class Connect4CommandListener extends ListenerAdapter {
                 return;
             }
 
-            event.getChannel().sendMessage(startGame(event.getChannel().getIdLong(), mentionedUsers.get(0), mentionedUsers.get(1), true).message()).queue();
+            long selfBotId = event.getJDA().getSelfUser().getIdLong();
+            event.getChannel().sendMessage(startGame(event.getChannel().getIdLong(), mentionedUsers.get(0), mentionedUsers.get(1), true, selfBotId).message()).queue();
             return;
         }
 
         String moveText = args.regionMatches(true, 0, "move", 0, 4)
                 ? args.substring(4).trim()
                 : args;
-        event.getChannel().sendMessage(processMove(event.getAuthor().getIdLong(), event.getChannel().getIdLong(), moveText, true).message()).queue();
+        long selfBotId = event.getJDA().getSelfUser().getIdLong();
+        event.getChannel().sendMessage(processMove(event.getAuthor().getIdLong(), event.getChannel().getIdLong(), moveText, true, selfBotId).message()).queue();
     }
 
-    private CommandResponse startGame(long channelId, User p1, User p2, boolean prefixMode) {
-        if (p1.isBot() || p2.isBot()) {
-            return CommandResponse.ephemeral("Bots can't play. Please select two human users.");
+    private CommandResponse startGame(long channelId, User p1, User p2, boolean prefixMode, long selfBotId) {
+        if (isUnsupportedBot(p1, selfBotId) || isUnsupportedBot(p2, selfBotId)) {
+            return CommandResponse.ephemeral("Only this bot can be selected as a bot player.");
         }
 
         Connect4Game game;
@@ -194,17 +197,21 @@ public class Connect4CommandListener extends ListenerAdapter {
         }
 
         gamesByChannel.put(channelId, game);
-        String message = String.format("Connect 4 started: <@%d> vs <@%d>%n%s%nTurn: <@%d> (use `%s`)",
+        StringBuilder message = new StringBuilder(String.format("Connect 4 started: <@%d> vs <@%d>%n%s%n",
                 game.getPlayerOneId(),
                 game.getPlayerTwoId(),
-                codeBlock(game.renderBoard()),
-                game.getCurrentTurn(),
-                moveUsage(prefixMode));
+                codeBlock(game.renderBoard())));
 
-        return CommandResponse.publicMessage(message);
+        if (game.getCurrentTurn() == selfBotId) {
+            appendBotMove(message, game, channelId, prefixMode, selfBotId);
+        } else {
+            message.append(String.format("Turn: <@%d> (use %s)", game.getCurrentTurn(), moveUsage(prefixMode)));
+        }
+
+        return CommandResponse.publicMessage(message.toString());
     }
 
-    private CommandResponse processMove(long userId, long channelId, String moveText, boolean prefixMode) {
+    private CommandResponse processMove(long userId, long channelId, String moveText, boolean prefixMode, long selfBotId) {
         Connect4Game game = gamesByChannel.get(channelId);
         if (game == null) {
             return CommandResponse.ephemeral("No active game in this channel. Start one with " + startUsage(prefixMode) + ".");
@@ -220,17 +227,49 @@ public class Connect4CommandListener extends ListenerAdapter {
         reply.append(String.format("Move `%s` accepted for <@%d>.%n", moveText.toUpperCase(), userId));
         reply.append(codeBlock(game.renderBoard())).append('\n');
 
-        if (result.status() == Connect4Game.Status.WIN) {
-            reply.append(String.format("🏆 Winner: <@%d>", game.getWinnerId()));
-            gamesByChannel.remove(channelId);
-        } else if (result.status() == Connect4Game.Status.DRAW) {
-            reply.append("🤝 Draw.");
-            gamesByChannel.remove(channelId);
+        if (appendFinishedOrDraw(reply, game, result, channelId)) {
+            return CommandResponse.publicMessage(reply.toString());
+        }
+
+        if (game.getCurrentTurn() == selfBotId) {
+            reply.append('\n');
+            appendBotMove(reply, game, channelId, prefixMode, selfBotId);
         } else {
             reply.append(String.format("Turn: <@%d>", game.getCurrentTurn()));
         }
 
         return CommandResponse.publicMessage(reply.toString());
+    }
+
+    private void appendBotMove(StringBuilder reply, Connect4Game game, long channelId, boolean prefixMode, long selfBotId) {
+        String botMove = game.chooseBotMove();
+        if (botMove == null) {
+            reply.append("Bot has no legal move.");
+            gamesByChannel.remove(channelId);
+            return;
+        }
+
+        Connect4Game.MoveResult botResult = game.makeMove(selfBotId, botMove);
+        reply.append(String.format("Bot move `%s`.%n", botMove));
+        reply.append(codeBlock(game.renderBoard())).append('\n');
+
+        if (!appendFinishedOrDraw(reply, game, botResult, channelId)) {
+            reply.append(String.format("Turn: <@%d> (use %s)", game.getCurrentTurn(), moveUsage(prefixMode)));
+        }
+    }
+
+    private boolean appendFinishedOrDraw(StringBuilder reply, Connect4Game game, Connect4Game.MoveResult result, long channelId) {
+        if (result.status() == Connect4Game.Status.WIN) {
+            reply.append(String.format("🏆 Winner: <@%d>", game.getWinnerId()));
+            gamesByChannel.remove(channelId);
+            return true;
+        } else if (result.status() == Connect4Game.Status.DRAW) {
+            reply.append("🤝 Draw.");
+            gamesByChannel.remove(channelId);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     private CommandResponse helpResponse(boolean prefixMode) {
@@ -254,6 +293,10 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     private User optionUser(OptionMapping option) {
         return option == null ? null : option.getAsUser();
+    }
+
+    private boolean isUnsupportedBot(User user, long selfBotId) {
+        return user.isBot() && user.getIdLong() != selfBotId;
     }
 
     private String codeBlock(String text) {

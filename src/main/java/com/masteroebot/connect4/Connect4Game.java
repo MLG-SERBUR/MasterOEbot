@@ -12,6 +12,7 @@ public class Connect4Game {
     private long currentTurn;
     private long winnerId;
     private boolean finished;
+    private static final int[] PREFERRED_COLUMNS = {3, 2, 4, 1, 5, 0, 6};
 
     public Connect4Game(long playerOneId, long playerTwoId) {
         if (playerOneId == playerTwoId) {
@@ -90,6 +91,33 @@ public class Connect4Game {
         return builder.toString();
     }
 
+    public String chooseBotMove() {
+        if (finished) {
+            return null;
+        }
+
+        char currentPiece = pieceFor(currentTurn);
+        String winningMove = findMoveCompleting(currentPiece);
+        if (winningMove != null) {
+            return winningMove;
+        }
+
+        char opponentPiece = pieceFor(otherPlayerId(currentTurn));
+        String blockingMove = findMoveCompleting(opponentPiece);
+        if (blockingMove != null) {
+            return blockingMove;
+        }
+
+        for (int col : PREFERRED_COLUMNS) {
+            int row = findDropRow(col);
+            if (row >= 0) {
+                return formatMove(row, col);
+            }
+        }
+
+        return null;
+    }
+
     public long getCurrentTurn() {
         return currentTurn;
     }
@@ -155,6 +183,33 @@ public class Connect4Game {
 
     private char pieceFor(long userId) {
         return userId == playerOneId ? '●' : '◍';
+    }
+
+    private long otherPlayerId(long userId) {
+        return userId == playerOneId ? playerTwoId : playerOneId;
+    }
+
+    private String findMoveCompleting(char piece) {
+        for (int col : PREFERRED_COLUMNS) {
+            int row = findDropRow(col);
+            if (row < 0) {
+                continue;
+            }
+
+            board[row][col] = piece;
+            boolean wins = hasConnectFour(row, col, piece);
+            board[row][col] = 'o';
+
+            if (wins) {
+                return formatMove(row, col);
+            }
+        }
+
+        return null;
+    }
+
+    private String formatMove(int row, int col) {
+        return String.valueOf(toRowLabel(row)) + (col + 1);
     }
 
     private boolean hasConnectFour(int row, int col, char piece) {
