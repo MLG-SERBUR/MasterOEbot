@@ -6,14 +6,23 @@ import java.util.*;
 
 public class MarkovManager {
     private static final String BRAIN_DIR = "data/markov";
+    private final MarkovConfig config;
     private final Map<Long, JMegaHal> brains = new HashMap<>();
     private final Map<Long, Boolean> brainLoaded = new HashMap<>();
+
+    public MarkovManager() {
+        this(null);
+    }
+
+    public MarkovManager(MarkovConfig config) {
+        this.config = config;
+    }
 
     public synchronized void loadBrain(long channelId) {
         if (brainLoaded.getOrDefault(channelId, false)) return;
         brainLoaded.put(channelId, true);
 
-        JMegaHal brain = new JMegaHal();
+        JMegaHal brain = newBrain(channelId);
         Path path = getBrainPath(channelId);
 
         if (Files.exists(path)) {
@@ -33,13 +42,19 @@ public class MarkovManager {
         brains.put(channelId, brain);
     }
 
+    public synchronized void reloadBrain(long channelId) {
+        brainLoaded.remove(channelId);
+        brains.remove(channelId);
+        loadBrain(channelId);
+    }
+
     public synchronized boolean isEmpty(long channelId) {
         JMegaHal brain = brains.get(channelId);
         return brain == null || brain.getSentence().isEmpty();
     }
 
     public synchronized void seedFromHistory(long channelId, List<String> messages) {
-        JMegaHal brain = brains.computeIfAbsent(channelId, k -> new JMegaHal());
+        JMegaHal brain = brains.computeIfAbsent(channelId, this::newBrain);
         for (String msg : messages) {
             if (msg != null && !msg.trim().isEmpty()) {
                 brain.add(msg.trim());
@@ -60,7 +75,7 @@ public class MarkovManager {
 
     public synchronized void train(long channelId, String message) {
         if (message == null || message.trim().isEmpty()) return;
-        JMegaHal brain = brains.computeIfAbsent(channelId, k -> new JMegaHal());
+        JMegaHal brain = brains.computeIfAbsent(channelId, this::newBrain);
         brain.add(message.trim());
     }
 
@@ -81,5 +96,9 @@ public class MarkovManager {
 
     private Path getBrainPath(long channelId) {
         return Paths.get(BRAIN_DIR, channelId + ".brain");
+    }
+
+    private JMegaHal newBrain(long channelId) {
+        return new JMegaHal(config == null || config.allowShortMessages(channelId));
     }
 }

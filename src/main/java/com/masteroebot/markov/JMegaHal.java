@@ -15,9 +15,14 @@ public class JMegaHal implements Serializable {
     public static final String END_CHARS = ".!?";
     private static final int MIN_WORD_TOKENS = 1;
     private static final int QUAD_SIZE = 4;
+    private final boolean allowShortMessages;
 
     public JMegaHal() {
+        this(true);
+    }
 
+    public JMegaHal(boolean allowShortMessages) {
+        this.allowShortMessages = allowShortMessages;
     }
 
     public void addDocument(String uri) throws IOException {
@@ -64,12 +69,18 @@ public class JMegaHal implements Serializable {
             parts.add(lastToken);
         }
 
-        if (countWordTokens(parts) < MIN_WORD_TOKENS) {
+        if (!allowShortMessages && parts.size() < QUAD_SIZE) {
             return;
         }
 
-        while (parts.size() < QUAD_SIZE) {
-            parts.add(0, "");
+        if (allowShortMessages) {
+            if (countWordTokens(parts) < MIN_WORD_TOKENS) {
+                return;
+            }
+
+            while (parts.size() < QUAD_SIZE) {
+                parts.add(0, "");
+            }
         }
 
         for (i = 0; i < parts.size() - (QUAD_SIZE - 1); i++) {

@@ -50,4 +50,13 @@ class JMegaHalTest {
 
         assertEquals("hello", brain.getSentence());
     }
+
+    @Test
+    void legacyModeRequiresFourTokens() {
+        JMegaHal brain = new JMegaHal(false);
+
+        brain.add("hello there");
+
+        assertEquals("", brain.getSentence());
+    }
 }

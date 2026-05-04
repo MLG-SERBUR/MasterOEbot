@@ -56,6 +56,7 @@ public class Connect4CommandListener extends ListenerAdapter {
                         .addSubcommands(
                                 new SubcommandData("toggle", "Toggle Markov on/off for this server"),
                                 new SubcommandData("status", "Check Markov status for this server"),
+                                new SubcommandData("short", "Toggle 1-3 token Markov training and output"),
                                 new SubcommandData("poll", "Create a markov generated poll")
                                         .addOption(OptionType.STRING, "word", "Optional seed word", false)
                         )
@@ -122,7 +123,18 @@ public class Connect4CommandListener extends ListenerAdapter {
             event.reply("Markov feature " + (newState ? "enabled" : "disabled") + " for this channel.").queue();
         } else if ("status".equals(subcommand)) {
             boolean enabled = markovConfig.isEnabled(channelId);
-            event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
+            boolean shortMessages = markovConfig.allowShortMessages(channelId);
+            event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled")
+                    + " for this channel. Short messages are "
+                    + (shortMessages ? "enabled" : "disabled (4-token requirement)") + ".").setEphemeral(true).queue();
+        } else if ("short".equals(subcommand)) {
+            boolean current = markovConfig.allowShortMessages(channelId);
+            boolean newState = !current;
+            markovConfig.setAllowShortMessages(channelId, newState);
+            markovManager.reloadBrain(channelId);
+
+            event.reply("Short Markov messages " + (newState ? "enabled" : "disabled; 4-token requirement restored")
+                    + " for this channel.").queue();
         } else if ("poll".equals(subcommand)) {
             if (pollHandler != null) {
                 pollHandler.handle(event);

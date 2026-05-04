@@ -24,9 +24,9 @@ public class BotMain {
         Path configPath = Path.of("config.yaml");
         BotConfig config = BotConfig.load(configPath);
 
-        MarkovManager markovManager = new MarkovManager();
         MarkovConfig markovConfig = new MarkovConfig();
         markovConfig.load();
+        MarkovManager markovManager = new MarkovManager(markovConfig);
 
         BootResult boot = startBot(config.token(), true, markovManager, markovConfig);
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
