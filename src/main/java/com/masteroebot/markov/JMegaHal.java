@@ -13,6 +13,8 @@ public class JMegaHal implements Serializable {
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
             "0123456789";
     public static final String END_CHARS = ".!?";
+    private static final int MIN_WORD_TOKENS = 1;
+    private static final int QUAD_SIZE = 4;
 
     public JMegaHal() {
 
@@ -62,51 +64,79 @@ public class JMegaHal implements Serializable {
             parts.add(lastToken);
         }
 
-        if (parts.size() >= 4) {
-            for (i = 0; i < parts.size() - 3; i++) {
-                Quad quad = new Quad(parts.get(i), parts.get(i + 1), parts.get(i + 2), parts.get(i + 3));
-                if (quads.containsKey(quad)) {
-                    quad = quads.get(quad);
-                } else {
-                    quads.put(quad, quad);
-                }
+        if (countWordTokens(parts) < MIN_WORD_TOKENS) {
+            return;
+        }
 
-                if (i == 0) {
-                    quad.setCanStart(true);
-                }
-                if (i == parts.size() - 4) {
-                    quad.setCanEnd(true);
-                }
+        while (parts.size() < QUAD_SIZE) {
+            parts.add(0, "");
+        }
 
-                for (int n = 0; n < 4; n++) {
-                    String token = parts.get(i + n);
-                    if (!words.containsKey(token)) {
-                        words.put(token, new HashSet<>(1));
-                    }
-                    HashSet<Quad> set = words.get(token);
-                    set.add(quad);
-                }
+        for (i = 0; i < parts.size() - (QUAD_SIZE - 1); i++) {
+            Quad quad = new Quad(parts.get(i), parts.get(i + 1), parts.get(i + 2), parts.get(i + 3));
+            if (quads.containsKey(quad)) {
+                quad = quads.get(quad);
+            } else {
+                quads.put(quad, quad);
+            }
 
-                if (i > 0) {
-                    String previousToken = parts.get(i - 1);
-                    if (!previous.containsKey(quad)) {
-                        previous.put(quad, new HashSet<>(1));
-                    }
-                    HashSet<String> set = previous.get(quad);
-                    set.add(previousToken);
-                }
+            if (i == 0) {
+                quad.setCanStart(true);
+            }
+            if (i == parts.size() - QUAD_SIZE) {
+                quad.setCanEnd(true);
+            }
 
-                if (i < parts.size() - 4) {
-                    String nextToken = parts.get(i + 4);
-                    if (!next.containsKey(quad)) {
-                        next.put(quad, new HashSet<>(1));
-                    }
-                    HashSet<String> set = next.get(quad);
-                    set.add(nextToken);
+            for (int n = 0; n < QUAD_SIZE; n++) {
+                String token = parts.get(i + n);
+                if (!words.containsKey(token)) {
+                    words.put(token, new HashSet<>(1));
                 }
+                HashSet<Quad> set = words.get(token);
+                set.add(quad);
+            }
 
+            if (i > 0) {
+                String previousToken = parts.get(i - 1);
+                if (!previous.containsKey(quad)) {
+                    previous.put(quad, new HashSet<>(1));
+                }
+                HashSet<String> set = previous.get(quad);
+                set.add(previousToken);
+            }
+
+            if (i < parts.size() - QUAD_SIZE) {
+                String nextToken = parts.get(i + QUAD_SIZE);
+                if (!next.containsKey(quad)) {
+                    next.put(quad, new HashSet<>(1));
+                }
+                HashSet<String> set = next.get(quad);
+                set.add(nextToken);
             }
         }
+    }
+
+    private int countWordTokens(ArrayList<String> parts) {
+        int count = 0;
+        for (String token : parts) {
+            if (isWordToken(token)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean isWordToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+
+        for (int i = 0; i < token.length(); i++) {
+            if (WORD_CHARS.indexOf(token.charAt(i)) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public String getSentence() {
@@ -130,7 +160,7 @@ public class JMegaHal implements Serializable {
         Quad middleQuad = quads[rand.nextInt(quads.length)];
         Quad quad = middleQuad;
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < QUAD_SIZE; i++) {
             parts.add(quad.getToken(i));
         }
 
