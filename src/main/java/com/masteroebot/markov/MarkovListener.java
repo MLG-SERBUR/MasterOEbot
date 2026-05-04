@@ -63,7 +63,7 @@ public class MarkovListener extends ListenerAdapter {
 
         manager.loadBrain(channelId);
 
-        String content = message.getContentDisplay();
+        String content = message.getContentRaw();
 
         if (content == null || content.trim().isEmpty()) return;
 
