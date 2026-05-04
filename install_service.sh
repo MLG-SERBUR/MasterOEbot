@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# MasterOEbot Installation Script (user systemd service)
+# This script builds the project and sets it up as a user systemd service.
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== MasterOEbot Installer ===${NC}"
+
+# 1. Check requirements
+if ! command -v java &> /dev/null; then
+    echo -e "${RED}Error: Java is not installed. Please install Java 21 or newer.${NC}"
+    exit 1
+fi
+
+if ! command -v mvn &> /dev/null; then
+    echo -e "${RED}Error: Maven is not installed.${NC}"
+    exit 1
+fi
+
+if ! command -v git &> /dev/null; then
+    echo -e "${RED}Error: git is not installed.${NC}"
+    exit 1
+fi
+
+# 2. Check for config.yaml
+if [ ! -f "config.yaml" ]; then
+    echo -e "${RED}Error: config.yaml not found in the current directory.${NC}"
+    echo "Please create config.yaml from config.yaml.example before running this installer."
+    exit 1
+fi
+
+# 3. Build the project
+echo -e "${BLUE}Building project with Maven...${NC}"
+mvn clean package -DskipTests
+
+JAR_FILE="target/masteroebot-1.0.0.jar"
+if [ ! -f "$JAR_FILE" ]; then
+    echo -e "${RED}Error: JAR file not found at $JAR_FILE after build.${NC}"
+    exit 1
+fi
+
+# 4. Prepare Service variables
+SERVICE_NAME="masteroebot"
+USER_NAME=$(whoami)
+WORK_DIR=$(pwd)
+JAVA_BIN=$(which java)
+MVN_BIN=$(which mvn)
+GIT_BIN=$(which git)
+
+echo -e "${BLUE}Configuring systemd service: $SERVICE_NAME...${NC}"
+
+# 5. Create the service file content
+SERVICE_CONTENT="[Unit]
+Description=MasterOEbot Service
+After=network.target
+
+[Service]
+WorkingDirectory=$WORK_DIR
+ExecStart=$JAVA_BIN -jar $WORK_DIR/$JAR_FILE
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target"
+
+# 6. Check if service is running and stop it for update (if exists)
+if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+    echo -e "${BLUE}Stopping existing user service for update...${NC}"
+    systemctl --user stop "$SERVICE_NAME"
+fi
+
+# 7. Write to user systemd directory
+USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
+mkdir -p "$USER_SYSTEMD_DIR"
+
+echo "$SERVICE_CONTENT" > "$USER_SYSTEMD_DIR/$SERVICE_NAME.service"
+
+echo -e "${BLUE}Applying systemd configuration...${NC}"
+systemctl --user daemon-reload
+systemctl --user enable "$SERVICE_NAME"
+systemctl --user start "$SERVICE_NAME"
+
+echo -e "${GREEN}=== Installation/Update Complete! ===${NC}"
+echo -e "You can view the logs with: ${BLUE}journalctl --user -u $SERVICE_NAME -f${NC}"
+echo -e "The service will now start automatically when you log in."
+echo -e "${BLUE}Note: To keep the service running after logout, run: sudo loginctl enable-linger $USER_NAME${NC}"

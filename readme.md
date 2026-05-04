@@ -51,6 +51,13 @@ mvn -q package
 java -jar target/masteroebot-1.0.0.jar
 ```
 
+## Systemd Service
+To install and run the bot in the background automatically:
+1. Ensure your `config.yaml` is configured.
+2. Run `./install_service.sh`.
+3. To view logs: `journalctl --user -u masteroebot -f`.
+4. To stop and uninstall: `./uninstall_service.sh`.
+
 ## Command usage
 1. Start game in a channel and select both players:
    - `/connect4 player1:@UserA player2:@UserB`
