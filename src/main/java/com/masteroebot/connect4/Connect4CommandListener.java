@@ -25,18 +25,21 @@ public class Connect4CommandListener extends ListenerAdapter {
     private final Map<Long, Connect4Game> gamesByChannel = new ConcurrentHashMap<>();
     private final MarkovManager markovManager;
     private final MarkovConfig markovConfig;
+    private final com.masteroebot.markov.MarkovPollHandler pollHandler;
     private boolean markovAvailable = false;
 
     public Connect4CommandListener(boolean prefixFallbackEnabled) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = null;
         this.markovConfig = null;
+        this.pollHandler = null;
     }
 
     public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager, MarkovConfig markovConfig) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
+        this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager);
     }
 
     public void setMarkovAvailable(boolean available) {
@@ -52,7 +55,9 @@ public class Connect4CommandListener extends ListenerAdapter {
                 Commands.slash("markov", "Toggle Markov chain feature")
                         .addSubcommands(
                                 new SubcommandData("toggle", "Toggle Markov on/off for this server"),
-                                new SubcommandData("status", "Check Markov status for this server")
+                                new SubcommandData("status", "Check Markov status for this server"),
+                                new SubcommandData("poll", "Create a markov generated poll")
+                                        .addOption(OptionType.STRING, "word", "Optional seed word", false)
                         )
         ).queue(
                 success -> System.out.println("Registered slash commands."),
@@ -117,6 +122,10 @@ public class Connect4CommandListener extends ListenerAdapter {
         } else if ("status".equals(subcommand)) {
             boolean enabled = markovConfig.isEnabled(channelId);
             event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
+        } else if ("poll".equals(subcommand)) {
+            if (pollHandler != null) {
+                pollHandler.handle(event);
+            }
         } else {
             event.reply("Unknown subcommand.").setEphemeral(true).queue();
         }
