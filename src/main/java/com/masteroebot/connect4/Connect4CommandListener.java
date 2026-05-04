@@ -3,6 +3,7 @@ package com.masteroebot.connect4;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovManager;
@@ -22,7 +23,8 @@ public class Connect4CommandListener extends ListenerAdapter {
     private static final String PREFIX_COMMAND = "!connect4";
 
     private final boolean prefixFallbackEnabled;
-    private final Map<Long, Connect4Game> gamesByChannel = new ConcurrentHashMap<>();
+    private final Map<Long, Map<Integer, Connect4Game>> gamesByChannel = new ConcurrentHashMap<>();
+    private final AtomicInteger nextGameId = new AtomicInteger(1);
     private final MarkovManager markovManager;
     private final MarkovConfig markovConfig;
     private final com.masteroebot.markov.MarkovPollHandler pollHandler;
@@ -51,7 +53,8 @@ public class Connect4CommandListener extends ListenerAdapter {
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player2", "Second player (required to start game)")
-                        .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.STRING, "move", "Move like F7 (used after game starts)"),
+                        .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.STRING, "move", "Move like F7 (used after game starts)")
+                        .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.INTEGER, "game", "Game number when multiple games are active"),
                 Commands.slash("markov", "Toggle Markov chain feature")
                         .addSubcommands(
                                 new SubcommandData("toggle", "Toggle Markov on/off for this server"),
@@ -79,10 +82,11 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         long channelId = event.getChannel().getIdLong();
         OptionMapping moveOption = event.getOption("move");
+        OptionMapping gameOption = event.getOption("game");
         long selfBotId = event.getJDA().getSelfUser().getIdLong();
 
         if (moveOption != null) {
-            reply(event, processMove(event.getUser().getIdLong(), channelId, moveOption.getAsString(), false, selfBotId));
+            reply(event, processMove(event.getUser().getIdLong(), channelId, gameIdFromOption(gameOption), moveOption.getAsString(), false, selfBotId));
             return;
         }
 
@@ -179,54 +183,56 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         List<User> mentionedUsers = message.getMentions().getUsers();
         if (!mentionedUsers.isEmpty()) {
-            if (mentionedUsers.size() != 2) {
-                event.getChannel().sendMessage("Need exactly 2 mentioned users. Example: `!connect4 @User1 @User2`").queue();
+            if (mentionedUsers.size() > 2) {
+                event.getChannel().sendMessage("Need 1 or 2 mentioned users. Example: `!connect4 @User1 @User2`").queue();
                 return;
             }
 
             long selfBotId = event.getJDA().getSelfUser().getIdLong();
-            event.getChannel().sendMessage(startGame(event.getChannel().getIdLong(), mentionedUsers.get(0), mentionedUsers.get(1), true, selfBotId).message()).queue();
+            User p1 = mentionedUsers.get(0);
+            User p2 = mentionedUsers.size() == 1 ? p1 : mentionedUsers.get(1);
+            event.getChannel().sendMessage(startGame(event.getChannel().getIdLong(), p1, p2, true, selfBotId).message()).queue();
             return;
         }
 
-        String moveText = args.regionMatches(true, 0, "move", 0, 4)
+        String moveArgs = args.regionMatches(true, 0, "move", 0, 4)
                 ? args.substring(4).trim()
                 : args;
+        ParsedMoveCommand parsedMove = parsePrefixMove(moveArgs);
         long selfBotId = event.getJDA().getSelfUser().getIdLong();
-        event.getChannel().sendMessage(processMove(event.getAuthor().getIdLong(), event.getChannel().getIdLong(), moveText, true, selfBotId).message()).queue();
+        event.getChannel().sendMessage(processMove(event.getAuthor().getIdLong(), event.getChannel().getIdLong(), parsedMove.gameId(), parsedMove.moveText(), true, selfBotId).message()).queue();
     }
 
     private CommandResponse startGame(long channelId, User p1, User p2, boolean prefixMode, long selfBotId) {
-        if (isUnsupportedBot(p1, selfBotId) || isUnsupportedBot(p2, selfBotId)) {
-            return CommandResponse.ephemeral("Only this bot can be selected as a bot player.");
-        }
+        Connect4Game game = new Connect4Game(p1.getIdLong(), p2.getIdLong());
+        int gameId = nextGameId.getAndIncrement();
+        gamesByChannel.computeIfAbsent(channelId, ignored -> new ConcurrentHashMap<>()).put(gameId, game);
 
-        Connect4Game game;
-        try {
-            game = new Connect4Game(p1.getIdLong(), p2.getIdLong());
-        } catch (IllegalArgumentException ex) {
-            return CommandResponse.ephemeral(ex.getMessage());
-        }
-
-        gamesByChannel.put(channelId, game);
-        StringBuilder message = new StringBuilder(String.format("Connect 4 started: <@%d> vs <@%d>%n%s%n",
+        StringBuilder message = new StringBuilder(String.format("Connect 4 #%d started: <@%d> vs <@%d>%n%s%n",
+                gameId,
                 game.getPlayerOneId(),
                 game.getPlayerTwoId(),
                 codeBlock(game.renderBoard())));
 
         if (game.getCurrentTurn() == selfBotId) {
-            appendBotMove(message, game, channelId, prefixMode, selfBotId);
+            appendBotMoves(message, game, channelId, gameId, prefixMode, selfBotId);
         } else {
-            message.append(String.format("Turn: <@%d> (use %s)", game.getCurrentTurn(), moveUsage(prefixMode)));
+            message.append(turnMessage(gameId, game, prefixMode));
         }
 
         return CommandResponse.publicMessage(message.toString());
     }
 
-    private CommandResponse processMove(long userId, long channelId, String moveText, boolean prefixMode, long selfBotId) {
-        Connect4Game game = gamesByChannel.get(channelId);
-        if (game == null) {
-            return CommandResponse.ephemeral("No active game in this channel. Start one with " + startUsage(prefixMode) + ".");
+    private CommandResponse processMove(long userId, long channelId, Integer gameId, String moveText, boolean prefixMode, long selfBotId) {
+        GameSelection selection = selectGame(userId, channelId, gameId, prefixMode);
+        if (!selection.valid()) {
+            return CommandResponse.ephemeral(selection.errorMessage());
+        }
+
+        Connect4Game game = selection.game();
+        int selectedGameId = selection.gameId();
+        if (moveText == null || moveText.isBlank()) {
+            return CommandResponse.ephemeral("Missing move. Use " + moveUsage(prefixMode) + ".");
         }
 
         Connect4Game.MoveResult result = game.makeMove(userId, moveText);
@@ -236,51 +242,106 @@ public class Connect4CommandListener extends ListenerAdapter {
         }
 
         StringBuilder reply = new StringBuilder();
-        reply.append(String.format("Move `%s` accepted for <@%d>.%n", moveText.toUpperCase(), userId));
+        reply.append(String.format("Game #%d move `%s` accepted for <@%d>.%n", selectedGameId, moveText.toUpperCase(), userId));
         reply.append(codeBlock(game.renderBoard())).append('\n');
 
-        if (appendFinishedOrDraw(reply, game, result, channelId)) {
+        if (appendFinishedOrDraw(reply, game, result, channelId, selectedGameId)) {
             return CommandResponse.publicMessage(reply.toString());
         }
 
         if (game.getCurrentTurn() == selfBotId) {
             reply.append('\n');
-            appendBotMove(reply, game, channelId, prefixMode, selfBotId);
+            appendBotMoves(reply, game, channelId, selectedGameId, prefixMode, selfBotId);
         } else {
-            reply.append(String.format("Turn: <@%d>", game.getCurrentTurn()));
+            reply.append(turnMessage(selectedGameId, game, prefixMode));
         }
 
         return CommandResponse.publicMessage(reply.toString());
     }
 
-    private void appendBotMove(StringBuilder reply, Connect4Game game, long channelId, boolean prefixMode, long selfBotId) {
-        String botMove = game.chooseBotMove();
-        if (botMove == null) {
-            reply.append("Bot has no legal move.");
-            gamesByChannel.remove(channelId);
-            return;
+    private GameSelection selectGame(long userId, long channelId, Integer requestedGameId, boolean prefixMode) {
+        Map<Integer, Connect4Game> channelGames = gamesByChannel.get(channelId);
+        if (channelGames == null || channelGames.isEmpty()) {
+            return GameSelection.error("No active game in this channel. Start one with " + startUsage(prefixMode) + ".");
         }
 
-        Connect4Game.MoveResult botResult = game.makeMove(selfBotId, botMove);
-        reply.append(String.format("Bot move `%s`.%n", botMove));
-        reply.append(codeBlock(game.renderBoard())).append('\n');
+        if (requestedGameId != null) {
+            Connect4Game requestedGame = channelGames.get(requestedGameId);
+            if (requestedGame == null) {
+                return GameSelection.error("No active game #" + requestedGameId + " in this channel.");
+            }
+            return GameSelection.success(requestedGameId, requestedGame);
+        }
 
-        if (!appendFinishedOrDraw(reply, game, botResult, channelId)) {
-            reply.append(String.format("Turn: <@%d> (use %s)", game.getCurrentTurn(), moveUsage(prefixMode)));
+        List<Map.Entry<Integer, Connect4Game>> playableGames = channelGames.entrySet().stream()
+                .filter(entry -> entry.getValue().getPlayerOneId() == userId || entry.getValue().getPlayerTwoId() == userId)
+                .sorted(Map.Entry.comparingByKey())
+                .toList();
+        if (playableGames.isEmpty()) {
+            return GameSelection.error("You're not in any active game in this channel.");
+        }
+        if (playableGames.size() > 1) {
+            return GameSelection.error("Multiple active games match. Specify game number with " + gameUsage(prefixMode) + ".");
+        }
+
+        Map.Entry<Integer, Connect4Game> selected = playableGames.get(0);
+        return GameSelection.success(selected.getKey(), selected.getValue());
+    }
+
+    private void appendBotMoves(StringBuilder reply, Connect4Game game, long channelId, int gameId, boolean prefixMode, long selfBotId) {
+        int moves = 0;
+        while (!game.isFinished() && game.getCurrentTurn() == selfBotId) {
+            String botMove = game.chooseBotMove();
+            if (botMove == null) {
+                reply.append("Bot has no legal move.");
+                removeGame(channelId, gameId);
+                return;
+            }
+
+            Connect4Game.MoveResult botResult = game.makeMove(selfBotId, botMove);
+            moves++;
+
+            if (game.getCurrentTurn() == selfBotId && !game.isFinished()) {
+                reply.append(String.format("Bot move `%s`.%n", botMove));
+                continue;
+            }
+
+            if (moves > 1) {
+                reply.append(String.format("Bot played %d moves; last move `%s`.%n", moves, botMove));
+            } else {
+                reply.append(String.format("Bot move `%s`.%n", botMove));
+            }
+            reply.append(codeBlock(game.renderBoard())).append('\n');
+
+            if (!appendFinishedOrDraw(reply, game, botResult, channelId, gameId)) {
+                reply.append(turnMessage(gameId, game, prefixMode));
+            }
         }
     }
 
-    private boolean appendFinishedOrDraw(StringBuilder reply, Connect4Game game, Connect4Game.MoveResult result, long channelId) {
+    private boolean appendFinishedOrDraw(StringBuilder reply, Connect4Game game, Connect4Game.MoveResult result, long channelId, int gameId) {
         if (result.status() == Connect4Game.Status.WIN) {
-            reply.append(String.format("🏆 Winner: <@%d>", game.getWinnerId()));
-            gamesByChannel.remove(channelId);
+            reply.append(String.format("Game #%d winner: <@%d>", gameId, game.getWinnerId()));
+            removeGame(channelId, gameId);
             return true;
         } else if (result.status() == Connect4Game.Status.DRAW) {
-            reply.append("🤝 Draw.");
-            gamesByChannel.remove(channelId);
+            reply.append(String.format("Game #%d draw.", gameId));
+            removeGame(channelId, gameId);
             return true;
         } else {
             return false;
+        }
+    }
+
+    private void removeGame(long channelId, int gameId) {
+        Map<Integer, Connect4Game> channelGames = gamesByChannel.get(channelId);
+        if (channelGames == null) {
+            return;
+        }
+
+        channelGames.remove(gameId);
+        if (channelGames.isEmpty()) {
+            gamesByChannel.remove(channelId);
         }
     }
 
@@ -291,7 +352,7 @@ public class Connect4CommandListener extends ListenerAdapter {
                 moveUsage(prefixMode)));
 
         if (prefixFallbackEnabled) {
-            message.append("Slash also supported: `/connect4 player1:@User1 player2:@User2` and `/connect4 move:F7`.");
+            message.append("Slash also supported: `/connect4 player1:@User1 player2:@User2` and `/connect4 move:F7 game:1`.");
         } else {
             message.append("Slash only. Prefix fallback disabled because `MESSAGE_CONTENT` intent was unavailable.");
         }
@@ -307,20 +368,57 @@ public class Connect4CommandListener extends ListenerAdapter {
         return option == null ? null : option.getAsUser();
     }
 
-    private boolean isUnsupportedBot(User user, long selfBotId) {
-        return user.isBot() && user.getIdLong() != selfBotId;
-    }
-
     private String codeBlock(String text) {
         return "```\n" + text + "\n```";
     }
 
     private String startUsage(boolean prefixMode) {
-        return prefixMode ? "`!connect4 @User1 @User2`" : "`/connect4 player1:@User1 player2:@User2`";
+        return prefixMode ? "`!connect4 @User1 @User2` or `!connect4 @User1`" : "`/connect4 player1:@User1 player2:@User2`";
     }
 
     private String moveUsage(boolean prefixMode) {
-        return prefixMode ? "`!connect4 F7` or `!connect4 move F7`" : "`/connect4 move:F7`";
+        return prefixMode ? "`!connect4 F7`, `!connect4 move F7`, or `!connect4 1 F7`" : "`/connect4 move:F7 game:1`";
+    }
+
+    private String gameUsage(boolean prefixMode) {
+        return prefixMode ? "`!connect4 1 F7`" : "`game:1`";
+    }
+
+    private String turnMessage(int gameId, Connect4Game game, boolean prefixMode) {
+        return String.format("Game #%d turn: <@%d> (use %s)", gameId, game.getCurrentTurn(), moveUsage(prefixMode));
+    }
+
+    private Integer gameIdFromOption(OptionMapping option) {
+        if (option == null) {
+            return null;
+        }
+        long value = option.getAsLong();
+        if (value < 1 || value > Integer.MAX_VALUE) {
+            return null;
+        }
+        return (int) value;
+    }
+
+    private ParsedMoveCommand parsePrefixMove(String raw) {
+        if (raw == null) {
+            return new ParsedMoveCommand(null, null);
+        }
+
+        String trimmed = raw.trim();
+        String[] parts = trimmed.split("\\s+", 2);
+        if (parts.length == 2) {
+            String gamePart = parts[0].startsWith("#") ? parts[0].substring(1) : parts[0];
+            try {
+                int gameId = Integer.parseInt(gamePart);
+                if (gameId > 0) {
+                    return new ParsedMoveCommand(gameId, parts[1].trim());
+                }
+            } catch (NumberFormatException ignored) {
+                return new ParsedMoveCommand(null, trimmed);
+            }
+        }
+
+        return new ParsedMoveCommand(null, trimmed);
     }
 
     private record CommandResponse(String message, boolean ephemeral) {
@@ -330,6 +428,19 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         static CommandResponse ephemeral(String message) {
             return new CommandResponse(message, true);
+        }
+    }
+
+    private record ParsedMoveCommand(Integer gameId, String moveText) {
+    }
+
+    private record GameSelection(boolean valid, int gameId, Connect4Game game, String errorMessage) {
+        static GameSelection success(int gameId, Connect4Game game) {
+            return new GameSelection(true, gameId, game, null);
+        }
+
+        static GameSelection error(String message) {
+            return new GameSelection(false, -1, null, message);
         }
     }
 }

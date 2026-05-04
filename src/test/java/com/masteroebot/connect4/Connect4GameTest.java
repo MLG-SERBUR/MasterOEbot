@@ -26,6 +26,18 @@ class Connect4GameTest {
     }
 
     @Test
+    void allowsSameUserToPlayBothSides() {
+        Connect4Game game = new Connect4Game(1L, 1L);
+
+        assertEquals(Connect4Game.Status.SUCCESS, game.makeMove(1L, "F1").status());
+        assertEquals(2, game.getCurrentTurnPlayer());
+        assertEquals(Connect4Game.Status.SUCCESS, game.makeMove(1L, "E1").status());
+        assertEquals(1, game.getCurrentTurnPlayer());
+        assertTrue(game.renderBoard().contains("E◍"));
+        assertTrue(game.renderBoard().contains("F●"));
+    }
+
+    @Test
     void detectsHorizontalWin() {
         Connect4Game game = new Connect4Game(1L, 2L);
 

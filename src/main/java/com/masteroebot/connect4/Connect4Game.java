@@ -9,19 +9,15 @@ public class Connect4Game {
     private final long playerOneId;
     private final long playerTwoId;
     private final char[][] board;
-    private long currentTurn;
+    private int currentTurnPlayer;
     private long winnerId;
     private boolean finished;
     private static final int[] PREFERRED_COLUMNS = {3, 2, 4, 1, 5, 0, 6};
 
     public Connect4Game(long playerOneId, long playerTwoId) {
-        if (playerOneId == playerTwoId) {
-            throw new IllegalArgumentException("Players must be different users.");
-        }
-
         this.playerOneId = playerOneId;
         this.playerTwoId = playerTwoId;
-        this.currentTurn = playerOneId;
+        this.currentTurnPlayer = 1;
         this.board = new char[ROWS][COLUMNS];
 
         for (int row = 0; row < ROWS; row++) {
@@ -38,7 +34,7 @@ public class Connect4Game {
         if (userId != playerOneId && userId != playerTwoId) {
             return MoveResult.error("You're not one of the selected players.");
         }
-        if (userId != currentTurn) {
+        if (userId != getCurrentTurn()) {
             return MoveResult.error("It's not your turn.");
         }
 
@@ -57,7 +53,7 @@ public class Connect4Game {
             return MoveResult.error("Invalid slot for gravity. This piece would land on " + expectedRowLabel + (move.column() + 1) + ".");
         }
 
-        char piece = pieceFor(userId);
+        char piece = pieceForPlayer(currentTurnPlayer);
         board[dropRow][move.column()] = piece;
 
         if (hasConnectFour(dropRow, move.column(), piece)) {
@@ -72,7 +68,7 @@ public class Connect4Game {
             return MoveResult.draw("Board is full. It's a draw.", dropRow, move.column());
         }
 
-        currentTurn = (currentTurn == playerOneId) ? playerTwoId : playerOneId;
+        currentTurnPlayer = currentTurnPlayer == 1 ? 2 : 1;
         return MoveResult.success("Move placed.", dropRow, move.column());
     }
 
@@ -96,13 +92,13 @@ public class Connect4Game {
             return null;
         }
 
-        char currentPiece = pieceFor(currentTurn);
+        char currentPiece = pieceForPlayer(currentTurnPlayer);
         String winningMove = findMoveCompleting(currentPiece);
         if (winningMove != null) {
             return winningMove;
         }
 
-        char opponentPiece = pieceFor(otherPlayerId(currentTurn));
+        char opponentPiece = pieceForPlayer(currentTurnPlayer == 1 ? 2 : 1);
         String blockingMove = findMoveCompleting(opponentPiece);
         if (blockingMove != null) {
             return blockingMove;
@@ -119,7 +115,11 @@ public class Connect4Game {
     }
 
     public long getCurrentTurn() {
-        return currentTurn;
+        return currentTurnPlayer == 1 ? playerOneId : playerTwoId;
+    }
+
+    public int getCurrentTurnPlayer() {
+        return currentTurnPlayer;
     }
 
     public long getPlayerOneId() {
@@ -181,12 +181,8 @@ public class Connect4Game {
         return true;
     }
 
-    private char pieceFor(long userId) {
-        return userId == playerOneId ? '●' : '◍';
-    }
-
-    private long otherPlayerId(long userId) {
-        return userId == playerOneId ? playerTwoId : playerOneId;
+    private char pieceForPlayer(int playerNumber) {
+        return playerNumber == 1 ? '●' : '◍';
     }
 
     private String findMoveCompleting(char piece) {

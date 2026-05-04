@@ -62,10 +62,15 @@ To install and run the bot in the background automatically:
 1. Start game in a channel and select both players:
    - `/connect4 player1:@UserA player2:@UserB`
    - `!connect4 @UserA @UserB`
+   - Use the same user twice to play yourself. Prefix mode also supports `!connect4 @UserA`.
+   - Bot users can be selected. This bot auto-plays its own turns.
 2. Players place moves on their turn:
-   - `/connect4 move:F7`
+   - `/connect4 move:F7 game:1`
    - `!connect4 F7`
    - `!connect4 move F7`
+   - `!connect4 1 F7`
+
+Each started game gets a number like `Connect 4 #1`. If multiple active games match you, include the game number with your move.
 
 Board format:
 ```text
