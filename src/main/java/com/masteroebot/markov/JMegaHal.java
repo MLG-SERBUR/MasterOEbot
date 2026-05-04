@@ -13,7 +13,6 @@ public class JMegaHal implements Serializable {
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
             "0123456789";
     public static final String END_CHARS = ".!?";
-    private static final int MIN_WORD_TOKENS = 2;
 
     public JMegaHal() {
 
@@ -63,9 +62,7 @@ public class JMegaHal implements Serializable {
             parts.add(lastToken);
         }
 
-        if (parts.size() < 4) {
-            addShortSentence(parts);
-        } else {
+        if (parts.size() >= 4) {
             for (i = 0; i < parts.size() - 3; i++) {
                 Quad quad = new Quad(parts.get(i), parts.get(i + 1), parts.get(i + 2), parts.get(i + 3));
                 if (quads.containsKey(quad)) {
@@ -112,58 +109,12 @@ public class JMegaHal implements Serializable {
         }
     }
 
-    private void addShortSentence(ArrayList<String> parts) {
-        if (countWordTokens(parts) < MIN_WORD_TOKENS) {
-            return;
-        }
-
-        String sentence = join(parts);
-        shortSentences.add(sentence);
-        for (String token : parts) {
-            if (isWordToken(token)) {
-                shortSentencesByWord
-                        .computeIfAbsent(token, k -> new ArrayList<>(1))
-                        .add(sentence);
-            }
-        }
-    }
-
-    private int countWordTokens(ArrayList<String> parts) {
-        int count = 0;
-        for (String token : parts) {
-            if (isWordToken(token)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private boolean isWordToken(String token) {
-        if (token == null || token.isEmpty()) {
-            return false;
-        }
-
-        for (int i = 0; i < token.length(); i++) {
-            if (WORD_CHARS.indexOf(token.charAt(i)) < 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public String getSentence() {
         return getSentence(null);
     }
 
     public String getSentence(String word) {
         LinkedList<String> parts = new LinkedList<>();
-        List<String> seededShortSentences = word != null ? shortSentencesByWord.get(word) : null;
-        boolean useSeededShortSentence = seededShortSentences != null
-                && !seededShortSentences.isEmpty()
-                && (!words.containsKey(word) || rand.nextDouble() < 0.25);
-        if (useSeededShortSentence) {
-            return seededShortSentences.get(rand.nextInt(seededShortSentences.size()));
-        }
 
         Quad[] quads;
         if (word != null && words.containsKey(word)) {
@@ -173,10 +124,7 @@ public class JMegaHal implements Serializable {
         }
 
         if (quads.length == 0) {
-            if (shortSentences.isEmpty()) {
-                return "";
-            }
-            return shortSentences.get(rand.nextInt(shortSentences.size()));
+            return "";
         }
 
         Quad middleQuad = quads[rand.nextInt(quads.length)];
@@ -201,10 +149,6 @@ public class JMegaHal implements Serializable {
             parts.addFirst(previousToken);
         }
 
-        return join(parts);
-    }
-
-    private String join(Collection<String> parts) {
         StringBuffer sentence = new StringBuffer();
         Iterator<String> it = parts.iterator();
         while (it.hasNext()) {
@@ -219,8 +163,6 @@ public class JMegaHal implements Serializable {
     private final HashMap<Quad, Quad> quads = new HashMap<>();
     private final HashMap<Quad, HashSet<String>> next = new HashMap<>();
     private final HashMap<Quad, HashSet<String>> previous = new HashMap<>();
-    private final ArrayList<String> shortSentences = new ArrayList<>();
-    private final HashMap<String, ArrayList<String>> shortSentencesByWord = new HashMap<>();
     private final Random rand = new Random();
 
 }
