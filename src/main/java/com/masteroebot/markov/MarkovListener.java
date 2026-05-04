@@ -24,7 +24,6 @@ public class MarkovListener extends ListenerAdapter {
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
     private static final double MIN_RESPONSE_CHANCE = 0.50;
-    private static final int FIRST_REPLY_MAX_DELAY_SECONDS = 5;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this.manager = manager;
@@ -106,10 +105,15 @@ public class MarkovListener extends ListenerAdapter {
         return rand.nextDouble() < responseChance;
     }
 
+    private int calculateDelay(String text) {
+        if (text == null || text.trim().isEmpty()) return 0;
+        return Math.min(10, text.split("\\s+").length / 4);
+    }
+
     private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
         String reply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
         if (!reply.isEmpty()) {
-            int delaySeconds = rand.nextInt(FIRST_REPLY_MAX_DELAY_SECONDS + 1);
+            int delaySeconds = calculateDelay(reply);
             Runnable sendReply = () -> {
                 event.getChannel().sendMessage(reply)
                         .setAllowedMentions(Collections.emptyList())
@@ -128,14 +132,16 @@ public class MarkovListener extends ListenerAdapter {
 
     private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
         if (rand.nextDouble() < 0.1) {
-            scheduler.schedule(() -> {
-                String secondReply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
-                if (!secondReply.isEmpty()) {
+            String secondReply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
+            if (!secondReply.isEmpty()) {
+                int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
+                event.getChannel().sendTyping().queue();
+                scheduler.schedule(() -> {
                     event.getChannel().sendMessage(secondReply)
                             .setAllowedMentions(Collections.emptyList())
                             .queue();
-                }
-            }, 2 + rand.nextInt(5), TimeUnit.SECONDS);
+                }, delaySeconds, TimeUnit.SECONDS);
+            }
         }
     }
 
