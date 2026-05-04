@@ -24,24 +24,6 @@ class JMegaHalTest {
     }
 
     @Test
-    void twoWordMessageCanGenerateWhenLongerMessagesExist() {
-        JMegaHal brain = new JMegaHal();
-
-        brain.add("hello there");
-        brain.add("this is a longer message");
-
-        boolean generatedShortMessage = false;
-        for (int i = 0; i < 50; i++) {
-            if ("hello there".equals(brain.getSentence())) {
-                generatedShortMessage = true;
-                break;
-            }
-        }
-
-        assertEquals(true, generatedShortMessage);
-    }
-
-    @Test
     void ignoresSingleWordMessage() {
         JMegaHal brain = new JMegaHal();
 

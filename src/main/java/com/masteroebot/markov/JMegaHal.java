@@ -160,12 +160,9 @@ public class JMegaHal implements Serializable {
         List<String> seededShortSentences = word != null ? shortSentencesByWord.get(word) : null;
         boolean useSeededShortSentence = seededShortSentences != null
                 && !seededShortSentences.isEmpty()
-                && rand.nextBoolean();
+                && (!words.containsKey(word) || rand.nextDouble() < 0.25);
         if (useSeededShortSentence) {
             return seededShortSentences.get(rand.nextInt(seededShortSentences.size()));
-        }
-        if (word == null && !shortSentences.isEmpty() && rand.nextBoolean()) {
-            return shortSentences.get(rand.nextInt(shortSentences.size()));
         }
 
         Quad[] quads;
