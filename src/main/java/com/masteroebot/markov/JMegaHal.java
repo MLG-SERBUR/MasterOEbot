@@ -6,8 +6,6 @@ import java.io.InputStreamReader;
 import java.io.Serializable;
 import java.net.URL;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class JMegaHal implements Serializable {
 
@@ -16,50 +14,8 @@ public class JMegaHal implements Serializable {
             "0123456789";
     public static final String END_CHARS = ".!?";
 
-    // Matches Discord custom emoji: <:name:id> or <a:name:id>
-    private static final Pattern EMOJI_PATTERN = Pattern.compile("<a?:\\w+:\\d+>");
-    // Maps placeholder token -> original emoji string
-    private final HashMap<String, String> emojiMap = new HashMap<>();
-    private int emojiCounter = 0;
-
     public JMegaHal() {
 
-    }
-
-    /**
-     * Replace Discord custom emoji with word-safe placeholder tokens.
-     */
-    private String encodeEmoji(String text) {
-        Matcher m = EMOJI_PATTERN.matcher(text);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String emoji = m.group();
-            // Reuse existing placeholder if this emoji was seen before
-            String placeholder = null;
-            for (Map.Entry<String, String> entry : emojiMap.entrySet()) {
-                if (entry.getValue().equals(emoji)) {
-                    placeholder = entry.getKey();
-                    break;
-                }
-            }
-            if (placeholder == null) {
-                placeholder = "DCEMOJI" + (emojiCounter++);
-                emojiMap.put(placeholder, emoji);
-            }
-            m.appendReplacement(sb, placeholder);
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
-    /**
-     * Restore placeholder tokens back to Discord custom emoji.
-     */
-    private String decodeEmoji(String text) {
-        for (Map.Entry<String, String> entry : emojiMap.entrySet()) {
-            text = text.replace(entry.getKey(), entry.getValue());
-        }
-        return text;
     }
 
     public void addDocument(String uri) throws IOException {
@@ -81,7 +37,7 @@ public class JMegaHal implements Serializable {
     }
 
     public void add(String sentence) {
-        sentence = encodeEmoji(sentence.trim());
+        sentence = sentence.trim();
         ArrayList<String> parts = new ArrayList<>();
         char[] chars = sentence.toCharArray();
         int i = 0;
@@ -200,7 +156,7 @@ public class JMegaHal implements Serializable {
             sentence.append(token);
         }
 
-        return decodeEmoji(sentence.toString());
+        return sentence.toString();
     }
 
     private final HashMap<String, HashSet<Quad>> words = new HashMap<>();

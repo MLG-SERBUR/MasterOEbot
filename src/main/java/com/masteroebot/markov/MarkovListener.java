@@ -5,6 +5,7 @@ import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageReference;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
@@ -13,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MarkovListener extends ListenerAdapter {
@@ -24,6 +26,7 @@ public class MarkovListener extends ListenerAdapter {
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
     private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
+    private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
     private static final double MIN_RESPONSE_CHANCE = 0.50;
@@ -49,6 +52,28 @@ public class MarkovListener extends ListenerAdapter {
                 .replace("@here", "@\u200bhere");
     }
 
+    private String resolveGuildEmoji(MessageReceivedEvent event, String text) {
+        if (text == null || text.isEmpty()) return "";
+
+        Matcher matcher = CUSTOM_EMOJI_NAME_PATTERN.matcher(text);
+        StringBuffer resolved = new StringBuffer();
+        while (matcher.find()) {
+            List<RichCustomEmoji> emojis = event.getGuild().getEmojisByName(matcher.group(1), false);
+            if (emojis.isEmpty()) {
+                continue;
+            }
+
+            String replacement = emojis.stream()
+                    .filter(RichCustomEmoji::isAvailable)
+                    .findFirst()
+                    .orElse(emojis.get(0))
+                    .getAsMention();
+            matcher.appendReplacement(resolved, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(resolved);
+        return resolved.toString();
+    }
+
     @Override
     public void onMessageReceived(MessageReceivedEvent event) {
         if (!event.isFromGuild()) return;
@@ -63,7 +88,7 @@ public class MarkovListener extends ListenerAdapter {
 
         manager.loadBrain(channelId);
 
-        String content = message.getContentRaw();
+        String content = message.getContentDisplay();
 
         if (content == null || content.trim().isEmpty()) return;
 
@@ -127,7 +152,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendMarkovReplies(MessageReceivedEvent event, long channelId, String content) {
-        String reply = escapeMassMentions(sanitizeOutput(generateReplyWithSeed(channelId, content)));
+        String reply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(generateReplyWithSeed(channelId, content))));
         if (!reply.isEmpty()) {
             int delaySeconds = calculateDelay(reply);
             Runnable sendReply = () -> {
@@ -148,7 +173,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
         if (rand.nextDouble() < 0.1) {
-            String secondReply = escapeMassMentions(sanitizeOutput(manager.generateReply(channelId)));
+            String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(manager.generateReply(channelId))));
             if (!secondReply.isEmpty()) {
                 int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
                 event.getChannel().sendTyping().queue();
