@@ -1,6 +1,7 @@
 package com.masteroebot.markov;
 
 import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageReference;
 import net.dv8tion.jda.api.entities.User;
@@ -11,6 +12,7 @@ import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 public class MarkovListener extends ListenerAdapter {
@@ -20,6 +22,7 @@ public class MarkovListener extends ListenerAdapter {
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
+    private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
@@ -71,6 +74,19 @@ public class MarkovListener extends ListenerAdapter {
         if (!isBot) {
             manager.train(channelId, content);
             manager.appendToBrain(channelId, content);
+            
+            if (messageCount.incrementAndGet() >= 100) {
+                messageCount.set(0);
+                String statusMsg = escapeMassMentions(sanitizeOutput(manager.generateReply(channelId)));
+                if (statusMsg != null && !statusMsg.trim().isEmpty()) {
+                    if (statusMsg.length() > 128) {
+                        statusMsg = statusMsg.substring(0, 128);
+                    }
+                    if (jda != null) {
+                        jda.getPresence().setActivity(Activity.customStatus(statusMsg));
+                    }
+                }
+            }
         }
 
         String botName = jda.getSelfUser().getName().toLowerCase();
