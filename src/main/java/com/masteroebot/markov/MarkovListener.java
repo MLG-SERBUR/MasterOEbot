@@ -200,6 +200,10 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private String generateReplyWithSeed(long channelId, String originalMessage) {
+        if (countWords(originalMessage) <= 2) {
+            return manager.generateReply(channelId);
+        }
+
         if (rand.nextDouble() < 0.2) {
             String[] words = originalMessage.split("\\s+");
             String[] validWords = Arrays.stream(words)
@@ -211,6 +215,13 @@ public class MarkovListener extends ListenerAdapter {
             }
         }
         return manager.generateReply(channelId);
+    }
+
+    static int countWords(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return 0;
+        }
+        return text.trim().split("\\s+").length;
     }
 
     public void shutdown() {

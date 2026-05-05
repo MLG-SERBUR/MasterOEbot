@@ -59,4 +59,12 @@ class JMegaHalTest {
 
         assertEquals("", brain.getSentence());
     }
+
+    @Test
+    void listenerCountsWordsForShortMessageSeedBypass() {
+        assertEquals(0, MarkovListener.countWords(""));
+        assertEquals(1, MarkovListener.countWords("hello"));
+        assertEquals(2, MarkovListener.countWords("hello there"));
+        assertEquals(3, MarkovListener.countWords("hello there bot"));
+    }
 }
