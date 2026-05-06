@@ -38,7 +38,7 @@ fi
 
 # 3. Build the project
 echo -e "${BLUE}Building project with Maven...${NC}"
-mvn clean package -DskipTests
+mvn clean package
 
 JAR_FILE="target/masteroebot-1.0.0.jar"
 if [ ! -f "$JAR_FILE" ]; then

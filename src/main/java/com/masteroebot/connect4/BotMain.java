@@ -21,6 +21,10 @@ import net.dv8tion.jda.api.requests.GatewayIntent;
 
 public class BotMain {
     public static void main(String[] args) throws LoginException, InterruptedException, IOException {
+        if (args.length > 0 && args[0].equals("--scrub")) {
+            com.masteroebot.markov.BrainScrubber.main(args);
+            return;
+        }
         Path configPath = Path.of("config.yaml");
         BotConfig config = BotConfig.load(configPath);
 

@@ -57,8 +57,11 @@ public class MarkovManager {
         JMegaHal brain = brains.computeIfAbsent(channelId, this::newBrain);
         for (String msg : messages) {
             if (msg != null && !msg.trim().isEmpty()) {
-                brain.add(msg.trim());
-                appendToBrain(channelId, msg.trim());
+                String trimmed = msg.trim();
+                if (!ProfanityFilter.containsProfanity(trimmed)) {
+                    brain.add(trimmed);
+                    appendToBrain(channelId, trimmed);
+                }
             }
         }
     }
@@ -75,18 +78,22 @@ public class MarkovManager {
 
     public synchronized void train(long channelId, String message) {
         if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
         JMegaHal brain = brains.computeIfAbsent(channelId, this::newBrain);
-        brain.add(message.trim());
+        brain.add(trimmed);
     }
 
     public synchronized void appendToBrain(long channelId, String message) {
         if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
         Path path = getBrainPath(channelId);
         try {
             Files.createDirectories(path.getParent());
             try (BufferedWriter writer = Files.newBufferedWriter(path,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-                writer.write(message.trim());
+                writer.write(trimmed);
                 writer.newLine();
             }
         } catch (IOException e) {
