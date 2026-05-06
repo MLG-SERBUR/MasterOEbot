@@ -28,7 +28,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
     private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
-    private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 3;
+    private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
     private static final double MIN_RESPONSE_CHANCE = 0.50;
 
