@@ -160,8 +160,7 @@ public class MarkovListener extends ListenerAdapter {
             Runnable sendReply = () -> {
                 event.getChannel().sendMessage(reply)
                         .setAllowedMentions(Collections.emptyList())
-                        .queue();
-                scheduleSecondReply(event, channelId, content);
+                        .queue(success -> scheduleSecondReply(event, channelId, content));
             };
 
             if (delaySeconds == 0) {
@@ -190,7 +189,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void startTyping(MessageReceivedEvent event, int delaySeconds) {
         event.getChannel().sendTyping().queue();
-        for (int d = 5; d < delaySeconds; d += 5) {
+        for (int d = 8; d < delaySeconds; d += 8) {
             scheduler.schedule(() -> event.getChannel().sendTyping().queue(), d, TimeUnit.SECONDS);
         }
     }
