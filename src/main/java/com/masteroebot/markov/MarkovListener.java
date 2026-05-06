@@ -167,7 +167,7 @@ public class MarkovListener extends ListenerAdapter {
             if (delaySeconds == 0) {
                 sendReply.run();
             } else {
-                event.getChannel().sendTyping().queue();
+                startTyping(event, delaySeconds);
                 scheduler.schedule(sendReply, delaySeconds, TimeUnit.SECONDS);
             }
         }
@@ -178,13 +178,20 @@ public class MarkovListener extends ListenerAdapter {
             String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(manager.generateReply(channelId))));
             if (!secondReply.isEmpty()) {
                 int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
-                event.getChannel().sendTyping().queue();
+                startTyping(event, delaySeconds);
                 scheduler.schedule(() -> {
                     event.getChannel().sendMessage(secondReply)
                             .setAllowedMentions(Collections.emptyList())
                             .queue();
                 }, delaySeconds, TimeUnit.SECONDS);
             }
+        }
+    }
+
+    private void startTyping(MessageReceivedEvent event, int delaySeconds) {
+        event.getChannel().sendTyping().queue();
+        for (int d = 5; d < delaySeconds; d += 5) {
+            scheduler.schedule(() -> event.getChannel().sendTyping().queue(), d, TimeUnit.SECONDS);
         }
     }
 
