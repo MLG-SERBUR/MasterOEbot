@@ -210,7 +210,7 @@ public class MarkovListener extends ListenerAdapter {
             return manager.generateReply(channelId);
         }
 
-        if (rand.nextDouble() < 0.2) {
+        if (rand.nextDouble() < 0.5) {
             String[] words = originalMessage.split("\\s+");
             String[] validWords = Arrays.stream(words)
                     .filter(w -> w.length() > 2)
