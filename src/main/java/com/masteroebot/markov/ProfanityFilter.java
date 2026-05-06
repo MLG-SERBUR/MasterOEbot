@@ -13,6 +13,8 @@ public class ProfanityFilter {
 
     static {
         addWord("fuck");
+        addWord("shit");
+        addWord("damn");
     }
 
     private static synchronized void updatePattern() {
@@ -21,9 +23,25 @@ public class ProfanityFilter {
             return;
         }
         
+        // Whitelist of common compound prefixes (catches bullshit, motherfucker, dumbass)
+        String prefixes = "(?:bull|horse|dog|cow|pig|bat|ape|chicken|dip|dumb|jack|mother|cluster|mind|un|holy)?";
+        
+        // Whitelist of common compound suffixes (catches asshole, shithead, fucktard)
+        String suffixes = "(?:ings?|ers?|ed|es|s|y|head|hole|ass|bag|face|wit|stick|stain|weed|tards?)?";
+        
         String regex = BAD_WORDS.stream()
-                .map(Pattern::quote)
-                .collect(Collectors.joining("|", "\\b(", ")\\b"));
+                .map(word -> {
+                    StringBuilder patternBuilder = new StringBuilder();
+                    for (char c : word.toCharArray()) {
+                        patternBuilder.append(Pattern.quote(String.valueOf(c))).append("+");
+                    }
+                    return patternBuilder.toString();
+                })
+                .collect(Collectors.joining(
+                        "|", 
+                        "\\b" + prefixes + "(?:", 
+                        ")" + suffixes + "(?:(?-i:(?<=[a-z])(?=[A-Z]))|\\b)"
+                ));
                 
         pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
     }
