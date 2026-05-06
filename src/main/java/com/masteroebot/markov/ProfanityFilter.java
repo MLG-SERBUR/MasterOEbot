@@ -1,44 +1,54 @@
 package com.masteroebot.markov;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class ProfanityFilter {
     private static final List<String> BAD_WORDS = new ArrayList<>();
-    static {
-        // User can add more words here
-        BAD_WORDS.add("fuck");
-    }
-
-    private static Pattern pattern;
+    
+    private static volatile Pattern pattern;
 
     static {
-        updatePattern();
+        addWord("fuck");
     }
 
-    private static void updatePattern() {
+    private static synchronized void updatePattern() {
         if (BAD_WORDS.isEmpty()) {
-            pattern = Pattern.compile("(?!)"); // Matches nothing
+            pattern = Pattern.compile("(?!)");
             return;
         }
-        StringBuilder sb = new StringBuilder("\\b(");
-        for (int i = 0; i < BAD_WORDS.size(); i++) {
-            sb.append(Pattern.quote(BAD_WORDS.get(i)));
-            if (i < BAD_WORDS.size() - 1) {
-                sb.append("|");
-            }
+        
+        String regex = BAD_WORDS.stream()
+                .map(Pattern::quote)
+                .collect(Collectors.joining("|", "\\b(", ")\\b"));
+                
+        pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
+    }
+
+    public static synchronized void addWord(String word) {
+        if (word != null && !word.isEmpty() && !BAD_WORDS.contains(word.toLowerCase())) {
+            BAD_WORDS.add(word.toLowerCase());
+            updatePattern();
         }
-        sb.append(")\\b");
-        pattern = Pattern.compile(sb.toString(), Pattern.CASE_INSENSITIVE);
+    }
+
+    public static synchronized void removeWord(String word) {
+        if (word != null && BAD_WORDS.remove(word.toLowerCase())) {
+            updatePattern();
+        }
     }
 
     public static boolean containsProfanity(String text) {
         if (text == null || text.isEmpty()) return false;
-        return pattern.matcher(text).find();
+        
+        Pattern currentPattern = pattern; 
+        return currentPattern.matcher(text).find();
     }
 
     public static List<String> getBadWords() {
-        return BAD_WORDS;
+        return Collections.unmodifiableList(BAD_WORDS);
     }
 }
