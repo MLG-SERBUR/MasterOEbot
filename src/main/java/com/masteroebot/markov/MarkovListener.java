@@ -30,7 +30,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
-    private static final double MIN_RESPONSE_CHANCE = 0.50;
+    private static final double MIN_RESPONSE_CHANCE = 0.0;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this.manager = manager;
