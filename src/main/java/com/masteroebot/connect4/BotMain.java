@@ -10,6 +10,7 @@ import javax.security.auth.login.LoginException;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
+import com.masteroebot.markov.RoundRobinGenerativeAiResponder;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -32,11 +33,14 @@ public class BotMain {
         markovConfig.load();
         MarkovManager markovManager = new MarkovManager(markovConfig);
 
-        BootResult boot = startBot(config.token(), true, markovManager, markovConfig);
+        RoundRobinGenerativeAiResponder generativeAiResponder =
+                new RoundRobinGenerativeAiResponder(config.generativeAiConfig());
+
+        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder);
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
 
         if (boot == null) {
-            boot = startBot(config.token(), false, markovManager, markovConfig);
+            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder);
             markovAvailable = false;
         }
 
@@ -55,13 +59,15 @@ public class BotMain {
     }
 
     private static BootResult startBot(String token, boolean enableMessageContent,
-                                       MarkovManager markovManager, MarkovConfig markovConfig)
+                                       MarkovManager markovManager, MarkovConfig markovConfig,
+                                       RoundRobinGenerativeAiResponder generativeAiResponder)
             throws LoginException, InterruptedException {
-        Connect4CommandListener listener = new Connect4CommandListener(enableMessageContent, markovManager, markovConfig);
+        Connect4CommandListener listener =
+                new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
-            markovListener = new MarkovListener(markovManager, markovConfig, null);
+            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder);
         }
 
         StartupProbe probe = new StartupProbe();

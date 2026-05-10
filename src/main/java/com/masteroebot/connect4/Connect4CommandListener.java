@@ -5,7 +5,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.masteroebot.markov.GenerativeAiRequest;
+import com.masteroebot.markov.GenerativeAiResponder;
 import com.masteroebot.markov.MarkovConfig;
+import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 
 import net.dv8tion.jda.api.entities.Message;
@@ -27,6 +30,7 @@ public class Connect4CommandListener extends ListenerAdapter {
     private final AtomicInteger nextGameId = new AtomicInteger(1);
     private final MarkovManager markovManager;
     private final MarkovConfig markovConfig;
+    private final GenerativeAiResponder generativeAiResponder;
     private final com.masteroebot.markov.MarkovPollHandler pollHandler;
     private boolean markovAvailable = false;
 
@@ -34,13 +38,20 @@ public class Connect4CommandListener extends ListenerAdapter {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = null;
         this.markovConfig = null;
+        this.generativeAiResponder = null;
         this.pollHandler = null;
     }
 
     public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager, MarkovConfig markovConfig) {
+        this(prefixFallbackEnabled, markovManager, markovConfig, null);
+    }
+
+    public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager,
+                                   MarkovConfig markovConfig, GenerativeAiResponder generativeAiResponder) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
+        this.generativeAiResponder = generativeAiResponder;
         this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager);
     }
 
@@ -60,8 +71,14 @@ public class Connect4CommandListener extends ListenerAdapter {
                                 new SubcommandData("toggle", "Toggle Markov on/off for this server"),
                                 new SubcommandData("status", "Check Markov status for this server"),
                                 new SubcommandData("short", "Toggle 1-3 token Markov training and output"),
+                                new SubcommandData("question", "Toggle AI replies for question messages in this channel"),
                                 new SubcommandData("poll", "Create a markov generated poll")
                                         .addOption(OptionType.STRING, "word", "Optional seed word", false)
+                        ),
+                Commands.slash("master", "MasterOEbot diagnostics")
+                        .addSubcommands(
+                                new SubcommandData("iqtest", "Test a raw AI response")
+                                        .addOption(OptionType.STRING, "prompt", "Optional chat message appended to the AI prompt", false)
                         )
         ).queue(
                 success -> System.out.println("Registered slash commands."),
@@ -71,12 +88,16 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName())) {
+        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"master".equals(event.getName())) {
             return;
         }
 
         if ("markov".equals(event.getName())) {
             handleMarkovCommand(event);
+            return;
+        }
+        if ("master".equals(event.getName())) {
+            handleMasterCommand(event);
             return;
         }
 
@@ -128,9 +149,12 @@ public class Connect4CommandListener extends ListenerAdapter {
         } else if ("status".equals(subcommand)) {
             boolean enabled = markovConfig.isEnabled(channelId);
             boolean shortMessages = markovConfig.allowShortMessages(channelId);
+            boolean questionAi = markovConfig.isQuestionAiEnabled(channelId);
             event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled")
                     + " for this channel. Short messages are "
-                    + (shortMessages ? "enabled" : "disabled (4-token requirement)") + ".").setEphemeral(true).queue();
+                    + (shortMessages ? "enabled" : "disabled (4-token requirement)")
+                    + ". Question AI replies are "
+                    + (questionAi ? "enabled" : "disabled; questions use Markov") + ".").setEphemeral(true).queue();
         } else if ("short".equals(subcommand)) {
             boolean current = markovConfig.allowShortMessages(channelId);
             boolean newState = !current;
@@ -139,12 +163,71 @@ public class Connect4CommandListener extends ListenerAdapter {
 
             event.reply("Short Markov messages " + (newState ? "enabled" : "disabled; 4-token requirement restored")
                     + " for this channel.").queue();
+        } else if ("question".equals(subcommand)) {
+            boolean current = markovConfig.isQuestionAiEnabled(channelId);
+            boolean newState = !current;
+            markovConfig.setQuestionAiEnabled(channelId, newState);
+
+            event.reply("Question AI replies " + (newState ? "enabled" : "disabled; questions use Markov")
+                    + " for this channel.").setEphemeral(true).queue();
         } else if ("poll".equals(subcommand)) {
             if (pollHandler != null) {
                 pollHandler.handle(event);
             }
         } else {
             event.reply("Unknown subcommand.").setEphemeral(true).queue();
+        }
+    }
+
+    private void handleMasterCommand(SlashCommandInteractionEvent event) {
+        if (!"iqtest".equals(event.getSubcommandName())) {
+            event.reply("Unknown subcommand.").setEphemeral(true).queue();
+            return;
+        }
+        if (!event.isFromGuild()) {
+            event.reply("This command can only be used in a server.").setEphemeral(true).queue();
+            return;
+        }
+        if (markovManager == null || generativeAiResponder == null) {
+            event.reply("AI test is not available.").setEphemeral(true).queue();
+            return;
+        }
+
+        long channelId = event.getChannel().getIdLong();
+        markovManager.loadBrain(channelId);
+        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessages(channelId, 500));
+        OptionMapping promptOption = event.getOption("prompt");
+        if (promptOption != null && !promptOption.getAsString().isBlank()) {
+            recentMessages.add(promptOption.getAsString().trim());
+        }
+
+        event.deferReply(true).queue(hook -> generativeAiResponder.generateReply(new GenerativeAiRequest(recentMessages))
+                .whenComplete((reply, error) -> {
+                    if (error != null) {
+                        hook.sendMessage("AI request failed:\n" + error).setAllowedMentions(java.util.Collections.emptyList()).queue();
+                        return;
+                    }
+
+                    boolean passesGate = MarkovListener.isLikelyChatLikeAiReply(reply);
+                    String header = "AI gate: " + (passesGate ? "PASS" : "FAIL")
+                            + "\nPrompt messages sent: " + recentMessages.size()
+                            + "\nRaw AI output:";
+                    sendEphemeralChunks(hook, header + "\n" + (reply == null ? "" : reply));
+                }));
+    }
+
+    private void sendEphemeralChunks(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
+        String remaining = text == null ? "" : text;
+        if (remaining.isEmpty()) {
+            hook.sendMessage("(empty)").setAllowedMentions(java.util.Collections.emptyList()).queue();
+            return;
+        }
+
+        while (!remaining.isEmpty()) {
+            int length = Math.min(1900, remaining.length());
+            String chunk = remaining.substring(0, length);
+            remaining = remaining.substring(length);
+            hook.sendMessage(chunk).setAllowedMentions(java.util.Collections.emptyList()).queue();
         }
     }
 

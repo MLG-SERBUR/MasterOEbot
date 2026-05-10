@@ -1,2 +1,18 @@
 discord:
   token: "PUT_YOUR_BOT_TOKEN_HERE"
+
+ai:
+  # Optional. API keys can also come from CEREBRAS_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY.
+  cerebrasApiKey: ""
+  groqApiKey: ""
+  openrouterApiKey: ""
+  cerebrasModel: "qwen-3-235b-a22b-instruct-2507"
+  groqModel: "meta-llama/llama-4-scout-17b-16e-instruct"
+  openrouterModel: "openrouter/free"
+  systemPrompt: |
+    You are replying in a Discord channel.
+    Use the provided recent messages as style examples: match their vocabulary, casing, punctuation, rhythm, humor, emoji habits, and typical message length.
+    The recent messages are ordered oldest to newest.
+    Answer the newest question naturally in the channel's style.
+    Do not mention prompts, training data, AI, or that examples were provided.
+    Keep the reply to one chat message.

@@ -9,6 +9,7 @@ public class MarkovConfig {
     private static final String CONFIG_FILE = "data/markov/config.yml";
     private final Map<Long, Boolean> channelToggles = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> shortMessageToggles = new ConcurrentHashMap<>();
+    private final Map<Long, Boolean> questionAiToggles = new ConcurrentHashMap<>();
     private boolean loaded = false;
 
     public void load() {
@@ -33,6 +34,10 @@ public class MarkovConfig {
                         long channelId = Long.parseLong(key.substring(0, key.length() - ".allowShortMessages".length()));
                         boolean enabled = Boolean.parseBoolean(props.getProperty(key));
                         shortMessageToggles.put(channelId, enabled);
+                    } else if (key.endsWith(".questionAiEnabled")) {
+                        long channelId = Long.parseLong(key.substring(0, key.length() - ".questionAiEnabled".length()));
+                        boolean enabled = Boolean.parseBoolean(props.getProperty(key));
+                        questionAiToggles.put(channelId, enabled);
                     } else {
                         long channelId = Long.parseLong(key);
                         boolean enabled = Boolean.parseBoolean(props.getProperty(key));
@@ -63,6 +68,15 @@ public class MarkovConfig {
         save();
     }
 
+    public boolean isQuestionAiEnabled(long channelId) {
+        return questionAiToggles.getOrDefault(channelId, true);
+    }
+
+    public void setQuestionAiEnabled(long channelId, boolean enabled) {
+        questionAiToggles.put(channelId, enabled);
+        save();
+    }
+
     private void save() {
         Path path = Paths.get(CONFIG_FILE);
         try {
@@ -73,6 +87,9 @@ public class MarkovConfig {
             }
             for (Map.Entry<Long, Boolean> entry : shortMessageToggles.entrySet()) {
                 props.setProperty(entry.getKey() + ".allowShortMessages", String.valueOf(entry.getValue()));
+            }
+            for (Map.Entry<Long, Boolean> entry : questionAiToggles.entrySet()) {
+                props.setProperty(entry.getKey() + ".questionAiEnabled", String.valueOf(entry.getValue()));
             }
             try (OutputStream out = Files.newOutputStream(path, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING)) {

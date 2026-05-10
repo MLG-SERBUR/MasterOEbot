@@ -6,9 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
+import com.masteroebot.markov.GenerativeAiConfig;
 import org.yaml.snakeyaml.Yaml;
 
-public record BotConfig(String token) {
+public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
 
     public static BotConfig load(Path path) throws IOException {
         if (!Files.exists(path)) {
@@ -28,8 +29,23 @@ public record BotConfig(String token) {
                 throw new IllegalStateException("Please set discord.token in " + path);
             }
 
-            return new BotConfig(token);
+            GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
+            GenerativeAiConfig generativeAiConfig = new GenerativeAiConfig(
+                    readString(data, "ai.systemPrompt", defaults.systemPrompt()),
+                    readString(data, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
+                    readString(data, "ai.groqApiKey", defaults.groqApiKey()),
+                    readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
+                    readString(data, "ai.cerebrasModel", defaults.cerebrasModel()),
+                    readString(data, "ai.groqModel", defaults.groqModel()),
+                    readString(data, "ai.openrouterModel", defaults.openrouterModel()));
+
+            return new BotConfig(token, generativeAiConfig);
         }
+    }
+
+    private static String readString(Map<String, Object> map, String dottedPath, String defaultValue) {
+        String value = readString(map, dottedPath);
+        return value == null || value.isBlank() ? defaultValue : value;
     }
 
     @SuppressWarnings("unchecked")

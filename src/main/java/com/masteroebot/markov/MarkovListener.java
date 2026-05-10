@@ -36,21 +36,12 @@ public class MarkovListener extends ListenerAdapter {
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     private static final int GENERATIVE_AI_HISTORY_LIMIT = 500;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 10;
-    private static final String GENERATIVE_AI_SYSTEM_PROMPT = """
-            You are replying in a Discord channel.
-            Use the provided recent messages as style examples: match their vocabulary, casing, punctuation, rhythm, humor, emoji habits, and typical message length.
-            The recent messages are ordered oldest to newest.
-            Answer the user's question naturally in the channel's style.
-            Do not mention prompts, training data, AI, or that examples were provided.
-            Do not create user, role, channel, everyone, or here mentions.
-            Keep the reply to one chat message unless the channel style strongly suggests otherwise.
-            """;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this(manager, config, jda, new PlaceholderGenerativeAiResponder());
     }
 
-    MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder) {
+    public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder) {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
@@ -177,7 +168,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendTriggeredReply(MessageReceivedEvent event, long channelId, String content) {
-        if (isQuestion(content)) {
+        if (config.isQuestionAiEnabled(channelId) && isQuestion(content)) {
             sendGenerativeAiReplyWithFallback(event, channelId, content);
             return;
         }
@@ -214,7 +205,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content) {
         List<String> recentMessages = manager.getRecentMessages(channelId, GENERATIVE_AI_HISTORY_LIMIT);
-        GenerativeAiRequest request = new GenerativeAiRequest(GENERATIVE_AI_SYSTEM_PROMPT, content, recentMessages);
+        GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
 
         CompletableFuture<String> replyFuture;
         try {
@@ -239,7 +230,13 @@ public class MarkovListener extends ListenerAdapter {
                         return;
                     }
 
-                    String safeReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(reply)));
+                    if (!isLikelyChatLikeAiReply(reply)) {
+                        logRejectedGenerativeAiReply(channelId, reply);
+                        sendImmediateSeededMarkovReply(event, channelId, content);
+                        return;
+                    }
+
+                    String safeReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(reply.trim())));
                     if (safeReply.trim().isEmpty()) {
                         logGenerativeAiFailure(channelId, new IllegalStateException("Generative AI responder returned empty reply"));
                         sendImmediateSeededMarkovReply(event, channelId, content);
@@ -256,6 +253,10 @@ public class MarkovListener extends ListenerAdapter {
         Throwable unwrapped = unwrapCompletionException(error);
         System.err.println("Generative AI reply failed for channel " + channelId + ": " + unwrapped);
         unwrapped.printStackTrace(System.err);
+    }
+
+    private void logRejectedGenerativeAiReply(long channelId, String reply) {
+        System.err.println("Generative AI reply rejected for channel " + channelId + ": " + reply);
     }
 
     private Throwable unwrapCompletionException(Throwable error) {
@@ -326,6 +327,28 @@ public class MarkovListener extends ListenerAdapter {
 
     static boolean isQuestion(String text) {
         return text != null && text.trim().endsWith("?");
+    }
+
+    public static boolean isLikelyChatLikeAiReply(String text) {
+        if (text == null) {
+            return false;
+        }
+
+        String trimmed = text.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 400) {
+            return false;
+        }
+        if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {
+            return false;
+        }
+        if (trimmed.contains("```")) {
+            return false;
+        }
+
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        return !lower.matches("^(assistant|user|system|bot)\\s*:.*")
+                && !lower.startsWith("as an ai")
+                && !lower.startsWith("as a language model");
     }
 
     public void shutdown() {
