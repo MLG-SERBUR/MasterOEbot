@@ -204,7 +204,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         event.deferReply(true).queue(hook -> generativeAiResponder.generateReply(new GenerativeAiRequest(recentMessages))
                 .whenComplete((reply, error) -> {
                     if (error != null) {
-                        hook.sendMessage("AI request failed:\n" + error).setAllowedMentions(java.util.Collections.emptyList()).queue();
+                        hook.sendMessage("AI request failed:\n" + error).setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
                         return;
                     }
 
@@ -219,7 +219,7 @@ public class Connect4CommandListener extends ListenerAdapter {
     private void sendEphemeralChunks(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
         String remaining = text == null ? "" : text;
         if (remaining.isEmpty()) {
-            hook.sendMessage("(empty)").setAllowedMentions(java.util.Collections.emptyList()).queue();
+            hook.sendMessage("(empty)").setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
             return;
         }
 
@@ -227,7 +227,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             int length = Math.min(1900, remaining.length());
             String chunk = remaining.substring(0, length);
             remaining = remaining.substring(length);
-            hook.sendMessage(chunk).setAllowedMentions(java.util.Collections.emptyList()).queue();
+            hook.sendMessage(chunk).setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
         }
     }
 
