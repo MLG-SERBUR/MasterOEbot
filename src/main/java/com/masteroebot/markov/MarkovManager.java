@@ -5,8 +5,9 @@ import java.nio.file.*;
 import java.util.*;
 
 public class MarkovManager {
-    private static final String BRAIN_DIR = "data/markov";
+    private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
     private final MarkovConfig config;
+    private final Path brainDir;
     private final Map<Long, JMegaHal> brains = new HashMap<>();
     private final Map<Long, Boolean> brainLoaded = new HashMap<>();
 
@@ -15,7 +16,12 @@ public class MarkovManager {
     }
 
     public MarkovManager(MarkovConfig config) {
+        this(config, DEFAULT_BRAIN_DIR);
+    }
+
+    MarkovManager(MarkovConfig config, Path brainDir) {
         this.config = config;
+        this.brainDir = brainDir;
     }
 
     public synchronized void loadBrain(long channelId) {
@@ -101,8 +107,38 @@ public class MarkovManager {
         }
     }
 
+    public synchronized List<String> getRecentMessages(long channelId, int limit) {
+        if (limit <= 0) {
+            return Collections.emptyList();
+        }
+
+        Path path = getBrainPath(channelId);
+        if (!Files.exists(path)) {
+            return Collections.emptyList();
+        }
+
+        Deque<String> recentMessages = new ArrayDeque<>(limit);
+        try (BufferedReader reader = Files.newBufferedReader(path)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                if (recentMessages.size() == limit) {
+                    recentMessages.removeFirst();
+                }
+                recentMessages.addLast(trimmed);
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to read recent brain messages for channel " + channelId + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(recentMessages);
+    }
+
     private Path getBrainPath(long channelId) {
-        return Paths.get(BRAIN_DIR, channelId + ".brain");
+        return brainDir.resolve(channelId + ".brain");
     }
 
     private JMegaHal newBrain(long channelId) {

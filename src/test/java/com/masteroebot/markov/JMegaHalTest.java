@@ -3,6 +3,7 @@ package com.masteroebot.markov;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JMegaHalTest {
@@ -66,5 +67,13 @@ class JMegaHalTest {
         assertEquals(1, MarkovListener.countWords("hello"));
         assertEquals(2, MarkovListener.countWords("hello there"));
         assertEquals(3, MarkovListener.countWords("hello there bot"));
+    }
+
+    @Test
+    void listenerDetectsQuestionByTrailingQuestionMark() {
+        assertTrue(MarkovListener.isQuestion("what now?"));
+        assertTrue(MarkovListener.isQuestion("what now?   "));
+        assertFalse(MarkovListener.isQuestion("what now"));
+        assertFalse(MarkovListener.isQuestion(null));
     }
 }
