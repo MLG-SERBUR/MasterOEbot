@@ -335,7 +335,7 @@ public class MarkovListener extends ListenerAdapter {
         }
 
         String trimmed = text.trim();
-        if (trimmed.isEmpty() || trimmed.length() > 400) {
+        if (trimmed.isEmpty() || trimmed.length() > 800) {
             return false;
         }
         if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {

@@ -61,6 +61,11 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                         .add(DataObject.empty()
                                 .put("role", "user")
                                 .put("content", String.join("\n", request.recentMessages()))));
+        if (provider.disableReasoning()) {
+            payload.put("reasoning", DataObject.empty()
+                    .put("enabled", false)
+                    .put("effort", "none"));
+        }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(provider.url()))
@@ -107,7 +112,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     "https://api.cerebras.ai/v1/chat/completions",
                     config.cerebrasApiKey(),
                     config.cerebrasModel(),
-                    Map.of()));
+                    Map.of(),
+                    false));
         }
         if (hasText(config.groqApiKey())) {
             providers.add(new Provider(
@@ -115,7 +121,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     "https://api.groq.com/openai/v1/chat/completions",
                     config.groqApiKey(),
                     config.groqModel(),
-                    Map.of()));
+                    Map.of(),
+                    false));
         }
         if (hasText(config.openrouterApiKey())) {
             providers.add(new Provider(
@@ -125,7 +132,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     config.openrouterModel(),
                     Map.of(
                             "HTTP-Referer", "https://github.com/RoboMWM/MasterOEbot",
-                            "X-Title", "MasterOEbot")));
+                            "X-Title", "MasterOEbot"),
+                    true));
         }
         return providers;
     }
@@ -134,6 +142,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return value != null && !value.isBlank();
     }
 
-    record Provider(String displayName, String url, String apiKey, String model, Map<String, String> extraHeaders) {
+    record Provider(String displayName, String url, String apiKey, String model,
+                    Map<String, String> extraHeaders, boolean disableReasoning) {
     }
 }
