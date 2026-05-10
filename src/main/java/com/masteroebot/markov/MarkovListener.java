@@ -101,7 +101,7 @@ public class MarkovListener extends ListenerAdapter {
 
         String content = message.getContentDisplay();
 
-        if (content == null || content.trim().isEmpty()) return;
+        if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) return;
 
         boolean responseAllowed = shouldRespondAfterDampening(channelId);
 

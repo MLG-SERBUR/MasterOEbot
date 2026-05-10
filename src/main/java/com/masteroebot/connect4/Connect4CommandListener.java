@@ -145,7 +145,7 @@ public class Connect4CommandListener extends ListenerAdapter {
                 seedFromHistory(event, channelId);
             }
 
-            event.reply("Markov feature " + (newState ? "enabled" : "disabled") + " for this channel.").queue();
+            event.reply("Markov feature " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
         } else if ("status".equals(subcommand)) {
             boolean enabled = markovConfig.isEnabled(channelId);
             boolean shortMessages = markovConfig.allowShortMessages(channelId);
@@ -162,7 +162,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             markovManager.reloadBrain(channelId);
 
             event.reply("Short Markov messages " + (newState ? "enabled" : "disabled; 4-token requirement restored")
-                    + " for this channel.").queue();
+                    + " for this channel.").setEphemeral(true).queue();
         } else if ("question".equals(subcommand)) {
             boolean current = markovConfig.isQuestionAiEnabled(channelId);
             boolean newState = !current;
@@ -204,7 +204,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         event.deferReply(true).queue(hook -> generativeAiResponder.generateReply(new GenerativeAiRequest(recentMessages))
                 .whenComplete((reply, error) -> {
                     if (error != null) {
-                        hook.sendMessage("AI request failed:\n" + error).setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
+                        hook.editOriginal("AI request failed:\n" + error).setAllowedMentions(java.util.Collections.emptyList()).queue();
                         return;
                     }
 
@@ -212,23 +212,16 @@ public class Connect4CommandListener extends ListenerAdapter {
                     String header = "AI gate: " + (passesGate ? "PASS" : "FAIL")
                             + "\nPrompt messages sent: " + recentMessages.size()
                             + "\nRaw AI output:";
-                    sendEphemeralChunks(hook, header + "\n" + (reply == null ? "" : reply));
+                    sendEphemeralReply(hook, header + "\n" + (reply == null ? "" : reply));
                 }));
     }
 
-    private void sendEphemeralChunks(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
-        String remaining = text == null ? "" : text;
-        if (remaining.isEmpty()) {
-            hook.sendMessage("(empty)").setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
-            return;
+    private void sendEphemeralReply(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
+        String safeText = text == null || text.isEmpty() ? "(empty)" : text;
+        if (safeText.length() > 1950) {
+            safeText = safeText.substring(0, 1950) + "... (truncated)";
         }
-
-        while (!remaining.isEmpty()) {
-            int length = Math.min(1900, remaining.length());
-            String chunk = remaining.substring(0, length);
-            remaining = remaining.substring(length);
-            hook.sendMessage(chunk).setEphemeral(true).setAllowedMentions(java.util.Collections.emptyList()).queue();
-        }
+        hook.editOriginal(safeText).setAllowedMentions(java.util.Collections.emptyList()).queue();
     }
 
     private void seedFromHistory(SlashCommandInteractionEvent event, long channelId) {
@@ -241,7 +234,9 @@ public class Connect4CommandListener extends ListenerAdapter {
             }
             if (!history.isEmpty()) {
                 markovManager.seedFromHistory(channelId, history);
-                event.getChannel().sendMessage("Brain seeded with " + history.size() + " messages from channel history.").queue();
+                event.getHook().sendMessage("Brain seeded with " + history.size() + " messages from channel history.")
+                        .setEphemeral(true)
+                        .queue();
             }
         });
     }
