@@ -206,6 +206,8 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content) {
+        startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
+
         List<String> recentMessages = manager.getRecentMessagesForAi(channelId, GENERATIVE_AI_HISTORY_LIMIT);
         GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
 
