@@ -34,7 +34,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.05;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
-    private static final int GENERATIVE_AI_HISTORY_LIMIT = 500;
+    public static final int GENERATIVE_AI_HISTORY_LIMIT = 1000;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 10;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
@@ -341,7 +341,7 @@ public class MarkovListener extends ListenerAdapter {
         }
 
         String trimmed = text.trim();
-        if (trimmed.isEmpty() || trimmed.length() > 800) {
+        if (trimmed.isEmpty() || trimmed.length() > 1200) {
             return false;
         }
         if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {
