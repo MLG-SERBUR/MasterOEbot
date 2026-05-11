@@ -6,6 +6,9 @@ import java.util.*;
 
 public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
+    private static final String BOT_MESSAGE_PREFIX = "MasterOEBot: ";
+    private static final String BRAIN_EXTENSION = ".brain";
+    private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
     private final Path brainDir;
     private final Map<Long, JMegaHal> brains = new HashMap<>();
@@ -94,16 +97,52 @@ public class MarkovManager {
         if (message == null || message.trim().isEmpty()) return;
         String trimmed = message.trim();
         if (ProfanityFilter.containsProfanity(trimmed)) return;
-        Path path = getBrainPath(channelId);
+        appendLine(channelId, trimmed, getBrainPath(channelId), "brain");
+    }
+
+    public synchronized void appendToAiLog(long channelId, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        appendLine(channelId, trimmed, getAiLogPath(channelId), "AI log");
+    }
+
+    public synchronized void appendBotMessageToAiLog(long channelId, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        appendLine(channelId, BOT_MESSAGE_PREFIX + trimmed, getAiLogPath(channelId), "AI log");
+    }
+
+    public synchronized void ensureAiLogInitialized(long channelId) {
+        Path aiLogPath = getAiLogPath(channelId);
+        if (Files.exists(aiLogPath)) {
+            return;
+        }
+
+        Path brainPath = getBrainPath(channelId);
+        if (!Files.exists(brainPath)) {
+            return;
+        }
+
+        try {
+            Files.createDirectories(aiLogPath.getParent());
+            Files.copy(brainPath, aiLogPath);
+        } catch (IOException e) {
+            System.err.println("Failed to initialize AI log for channel " + channelId + ": " + e.getMessage());
+        }
+    }
+
+    private void appendLine(long channelId, String line, Path path, String logName) {
         try {
             Files.createDirectories(path.getParent());
             try (BufferedWriter writer = Files.newBufferedWriter(path,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-                writer.write(trimmed);
+                writer.write(line);
                 writer.newLine();
             }
         } catch (IOException e) {
-            System.err.println("Failed to append to brain for channel " + channelId + ": " + e.getMessage());
+            System.err.println("Failed to append to " + logName + " for channel " + channelId + ": " + e.getMessage());
         }
     }
 
@@ -137,11 +176,49 @@ public class MarkovManager {
         return new ArrayList<>(recentMessages);
     }
 
+    public synchronized List<String> getRecentMessagesForAi(long channelId, int limit) {
+        ensureAiLogInitialized(channelId);
+        Path path = getAiLogPath(channelId);
+        if (Files.exists(path)) {
+            return getRecentLines(path, limit, "AI log", channelId);
+        }
+        return getRecentMessages(channelId, limit);
+    }
+
     private Path getBrainPath(long channelId) {
-        return brainDir.resolve(channelId + ".brain");
+        return brainDir.resolve(channelId + BRAIN_EXTENSION);
+    }
+
+    private Path getAiLogPath(long channelId) {
+        return brainDir.resolve(channelId + AI_LOG_EXTENSION);
     }
 
     private JMegaHal newBrain(long channelId) {
         return new JMegaHal(config == null || config.allowShortMessages(channelId));
+    }
+
+    private List<String> getRecentLines(Path path, int limit, String logName, long channelId) {
+        if (limit <= 0 || !Files.exists(path)) {
+            return Collections.emptyList();
+        }
+
+        Deque<String> recentMessages = new ArrayDeque<>(limit);
+        try (BufferedReader reader = Files.newBufferedReader(path)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                if (recentMessages.size() == limit) {
+                    recentMessages.removeFirst();
+                }
+                recentMessages.addLast(trimmed);
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to read recent " + logName + " messages for channel " + channelId + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(recentMessages);
     }
 }

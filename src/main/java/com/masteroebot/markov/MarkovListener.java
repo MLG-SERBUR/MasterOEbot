@@ -109,7 +109,9 @@ public class MarkovListener extends ListenerAdapter {
 
         if (!isBot) {
             manager.train(channelId, content);
+            manager.ensureAiLogInitialized(channelId);
             manager.appendToBrain(channelId, content);
+            manager.appendToAiLog(channelId, content);
             
             if (messageCount.incrementAndGet() >= 100) {
                 messageCount.set(0);
@@ -204,7 +206,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content) {
-        List<String> recentMessages = manager.getRecentMessages(channelId, GENERATIVE_AI_HISTORY_LIMIT);
+        List<String> recentMessages = manager.getRecentMessagesForAi(channelId, GENERATIVE_AI_HISTORY_LIMIT);
         GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
 
         CompletableFuture<String> replyFuture;
@@ -245,7 +247,7 @@ public class MarkovListener extends ListenerAdapter {
 
                     event.getChannel().sendMessage(safeReply)
                             .setAllowedMentions(Collections.emptyList())
-                            .queue();
+                            .queue(success -> trackAiMessage(channelId, safeReply));
                 });
     }
 
@@ -280,6 +282,10 @@ public class MarkovListener extends ListenerAdapter {
                 }, delaySeconds, TimeUnit.SECONDS);
             }
         }
+    }
+
+    private void trackAiMessage(long channelId, String message) {
+        manager.appendBotMessageToAiLog(channelId, message);
     }
 
     private void startTyping(MessageReceivedEvent event, int delaySeconds) {

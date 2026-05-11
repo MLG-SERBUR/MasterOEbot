@@ -1,5 +1,6 @@
 package com.masteroebot.markov;
 
+import net.dv8tion.jda.api.utils.data.DataObject;
 import org.junit.jupiter.api.Test;
 
 import javax.net.ssl.SSLContext;
@@ -63,9 +64,9 @@ class RoundRobinGenerativeAiResponderTest {
         responder.generateReply(request).join();
 
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"reasoning\""));
-        org.junit.jupiter.api.Assertions.assertTrue(client.bodies.get(1).contains("\"reasoning\""));
-        org.junit.jupiter.api.Assertions.assertTrue(client.bodies.get(1).contains("\"enabled\":false"));
-        org.junit.jupiter.api.Assertions.assertTrue(client.bodies.get(1).contains("\"effort\":\"none\""));
+        DataObject reasoning = DataObject.fromJson(client.bodies.get(1)).getObject("reasoning");
+        org.junit.jupiter.api.Assertions.assertFalse(reasoning.getBoolean("enabled"));
+        assertEquals("none", reasoning.getString("effort"));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"exclude\""));
     }
 
