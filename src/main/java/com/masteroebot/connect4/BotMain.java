@@ -35,6 +35,7 @@ public class BotMain {
 
         RoundRobinGenerativeAiResponder generativeAiResponder =
                 new RoundRobinGenerativeAiResponder(config.generativeAiConfig());
+        System.out.println("Loaded system prompt: " + config.generativeAiConfig().systemPrompt());
 
         BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder);
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
