@@ -36,18 +36,38 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         if (providers.isEmpty()) {
             return CompletableFuture.failedFuture(new IllegalStateException("No generative AI providers configured"));
         }
+        long deadlineMs = System.currentTimeMillis() + (REQUEST_TIMEOUT_SECONDS * 1000L);
+        return attemptGenerateReply(request, deadlineMs, 0);
+    }
+
+    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts) {
+        long timeRemainingMs = deadlineMs - System.currentTimeMillis();
+        if (attempts > 0 && timeRemainingMs <= 2000) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next provider"));
+        }
 
         Provider provider = providers.get(Math.floorMod(nextProvider.getAndIncrement(), providers.size()));
         HttpRequest httpRequest;
         try {
             httpRequest = buildRequest(provider, request);
         } catch (Exception e) {
-            return CompletableFuture.failedFuture(e);
+            return fallback(request, deadlineMs, attempts + 1, e);
         }
 
         System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request...");
         return client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> parseResponse(provider, response));
+                .thenApply(response -> parseResponse(provider, response))
+                .exceptionallyCompose(e -> fallback(request, deadlineMs, attempts + 1, e));
+    }
+
+    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e) {
+        System.err.println("Provider failed: " + e.toString());
+        long timeRemainingMs = deadlineMs - System.currentTimeMillis();
+        if (attempts >= providers.size() || timeRemainingMs <= 2000) {
+            return CompletableFuture.failedFuture(e);
+        }
+        System.out.println("Retrying next provider...");
+        return attemptGenerateReply(request, deadlineMs, attempts);
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request) {
@@ -132,7 +152,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                         config.openrouterApiKey(),
                         model,
                         Map.of(
-                                "HTTP-Referer", "https://github.com/RoboMWM/MasterOEbot",
+                                "HTTP-Referer", "https://github.com/MLG-SERBUR/MasterOEbot",
                                 "X-Title", "MasterOEbot"),
                         true));
             }
