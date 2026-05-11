@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import com.masteroebot.markov.GenerativeAiConfig;
@@ -37,7 +38,7 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
                     readString(data, "ai.cerebrasModel", defaults.cerebrasModel()),
                     readString(data, "ai.groqModel", defaults.groqModel()),
-                    readString(data, "ai.openrouterModel", defaults.openrouterModel()));
+                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()));
 
             return new BotConfig(token, generativeAiConfig);
         }
@@ -64,5 +65,33 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
         }
 
         return current instanceof String value ? value : null;
+    }
+
+    private static List<String> readStringList(Map<String, Object> map, String dottedPath, List<String> defaultValue) {
+        List<String> value = readStringList(map, dottedPath);
+        return value == null || value.isEmpty() ? defaultValue : value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> readStringList(Map<String, Object> map, String dottedPath) {
+        String[] parts = dottedPath.split("\\.");
+        Object current = map;
+
+        for (String part : parts) {
+            if (!(current instanceof Map<?, ?> currentMap)) {
+                return null;
+            }
+            current = ((Map<String, Object>) currentMap).get(part);
+            if (current == null) {
+                return null;
+            }
+        }
+
+        if (current instanceof List<?> list) {
+            return list.stream().map(Object::toString).toList();
+        } else if (current instanceof String str) {
+            return List.of(str);
+        }
+        return null;
     }
 }

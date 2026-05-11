@@ -1,5 +1,7 @@
 package com.masteroebot.markov;
 
+import java.util.List;
+
 public record GenerativeAiConfig(
         String systemPrompt,
         String cerebrasApiKey,
@@ -7,7 +9,7 @@ public record GenerativeAiConfig(
         String openrouterApiKey,
         String cerebrasModel,
         String groqModel,
-        String openrouterModel
+        List<String> openrouterModels
 ) {
     public static final String DEFAULT_SYSTEM_PROMPT = """
             You are replying in a Discord channel.
@@ -26,6 +28,6 @@ public record GenerativeAiConfig(
                 System.getenv("OPENROUTER_API_KEY"),
                 "qwen-3-235b-a22b-instruct-2507",
                 "meta-llama/llama-4-scout-17b-16e-instruct",
-                "openrouter/free");
+                List.of("openrouter/free"));
     }
 }

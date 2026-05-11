@@ -125,15 +125,17 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     false));
         }
         if (hasText(config.openrouterApiKey())) {
-            providers.add(new Provider(
-                    "OpenRouter",
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    config.openrouterApiKey(),
-                    config.openrouterModel(),
-                    Map.of(
-                            "HTTP-Referer", "https://github.com/RoboMWM/MasterOEbot",
-                            "X-Title", "MasterOEbot"),
-                    true));
+            for (String model : config.openrouterModels()) {
+                providers.add(new Provider(
+                        "OpenRouter",
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        config.openrouterApiKey(),
+                        model,
+                        Map.of(
+                                "HTTP-Referer", "https://github.com/RoboMWM/MasterOEbot",
+                                "X-Title", "MasterOEbot"),
+                        true));
+            }
         }
         return providers;
     }

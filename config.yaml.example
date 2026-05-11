@@ -8,7 +8,9 @@ ai:
   openrouterApiKey: ""
   cerebrasModel: "qwen-3-235b-a22b-instruct-2507"
   groqModel: "meta-llama/llama-4-scout-17b-16e-instruct"
-  openrouterModel: "openrouter/free"
+  openrouterModels:
+    - "z-ai/glm-4.5-air:free"
+    - "nvidia/nemotron-3-super-120b-a12b:free"
   systemPrompt: |
     You are replying in a Discord channel.
     Use the provided recent messages as style examples: match their vocabulary, casing, punctuation, rhythm, humor, emoji habits, and typical message length.
