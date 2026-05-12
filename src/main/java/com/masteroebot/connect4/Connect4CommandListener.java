@@ -237,7 +237,8 @@ public class Connect4CommandListener extends ListenerAdapter {
 
                 if (!msg.getAuthor().isBot()) {
                     brainHistory.add(content);
-                    markovManager.appendToAiLog(channelId, msg.getAuthor().getEffectiveName(), content);
+                    String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
+                    markovManager.appendToAiLog(channelId, authorName, content);
                 } else if (msg.getAuthor().getIdLong() == event.getJDA().getSelfUser().getIdLong()) {
                     markovManager.appendBotMessageToAiLog(channelId, content);
                 }

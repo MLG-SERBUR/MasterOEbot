@@ -113,7 +113,7 @@ public class MarkovListener extends ListenerAdapter {
                 seedAiLogFromHistory(event, channelId);
             }
             manager.appendToBrain(channelId, content);
-            manager.appendToAiLog(channelId, message.getAuthor().getEffectiveName(), content);
+            manager.appendToAiLog(channelId, event.getMember().getEffectiveName(), content);
             
             if (messageCount.incrementAndGet() >= 100) {
                 messageCount.set(0);
@@ -302,7 +302,8 @@ public class MarkovListener extends ListenerAdapter {
                     if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
                         manager.appendBotMessageToAiLog(channelId, msg.getContentDisplay());
                     } else {
-                        manager.appendToAiLog(channelId, msg.getAuthor().getEffectiveName(), msg.getContentDisplay());
+                        String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
+                        manager.appendToAiLog(channelId, authorName, msg.getContentDisplay());
                     }
                 }
             }
