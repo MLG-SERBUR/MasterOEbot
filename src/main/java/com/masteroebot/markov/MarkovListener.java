@@ -288,11 +288,7 @@ public class MarkovListener extends ListenerAdapter {
                         return;
                     }
 
-                    if (!isLikelyChatLikeAiReply(reply)) {
-                        logRejectedGenerativeAiReply(channelId, reply);
-                        sendImmediateSeededMarkovReply(event, channelId, content);
-                        return;
-                    }
+
 
                     String safeReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(reply.trim())));
                     if (safeReply.trim().isEmpty()) {
@@ -439,9 +435,7 @@ public class MarkovListener extends ListenerAdapter {
         unwrapped.printStackTrace(System.err);
     }
 
-    private void logRejectedGenerativeAiReply(long channelId, String reply) {
-        System.err.println("Generative AI reply rejected for channel " + channelId + ": " + reply);
-    }
+
 
     private Throwable unwrapCompletionException(Throwable error) {
         if ((error instanceof CompletionException || error instanceof java.util.concurrent.ExecutionException)
@@ -547,27 +541,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
 
-    public static boolean isLikelyChatLikeAiReply(String text) {
-        if (text == null) {
-            return false;
-        }
 
-        String trimmed = text.trim();
-        if (trimmed.isEmpty() || trimmed.length() > 1200) {
-            return false;
-        }
-        if (trimmed.indexOf('\n') >= 0 || trimmed.indexOf('\r') >= 0) {
-            return false;
-        }
-        if (trimmed.contains("```")) {
-            return false;
-        }
-
-        String lower = trimmed.toLowerCase(Locale.ROOT);
-        return !lower.matches("^(assistant|user|system|bot)\\s*:.*")
-                && !lower.startsWith("as an ai")
-                && !lower.startsWith("as a language model");
-    }
 
     public void shutdown() {
         scheduler.shutdown();

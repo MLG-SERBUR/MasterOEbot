@@ -208,9 +208,7 @@ public class Connect4CommandListener extends ListenerAdapter {
                         return;
                     }
 
-                    boolean passesGate = MarkovListener.isLikelyChatLikeAiReply(reply);
-                    String header = "AI gate: " + (passesGate ? "PASS" : "FAIL")
-                            + "\nPrompt messages sent: " + recentMessages.size()
+                    String header = "Prompt messages sent: " + recentMessages.size()
                             + "\nRaw AI output:";
                     sendEphemeralReply(hook, header + "\n" + (reply == null ? "" : reply));
                 }));
