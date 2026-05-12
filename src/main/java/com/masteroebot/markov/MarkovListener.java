@@ -172,7 +172,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendTriggeredReply(MessageReceivedEvent event, long channelId, String content) {
-        if (config.isQuestionAiEnabled(channelId) && isQuestion(content)) {
+        if (config.isQuestionAiEnabled(channelId)) {
             sendGenerativeAiReplyWithFallback(event, channelId, content);
             return;
         }
@@ -356,9 +356,6 @@ public class MarkovListener extends ListenerAdapter {
         return text.trim().split("\\s+").length;
     }
 
-    static boolean isQuestion(String text) {
-        return text != null && text.trim().endsWith("?");
-    }
 
     public static boolean isLikelyChatLikeAiReply(String text) {
         if (text == null) {

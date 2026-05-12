@@ -70,14 +70,6 @@ class JMegaHalTest {
     }
 
     @Test
-    void listenerDetectsQuestionByTrailingQuestionMark() {
-        assertTrue(MarkovListener.isQuestion("what now?"));
-        assertTrue(MarkovListener.isQuestion("what now?   "));
-        assertFalse(MarkovListener.isQuestion("what now"));
-        assertFalse(MarkovListener.isQuestion(null));
-    }
-
-    @Test
     void listenerRejectsNonChatLikeAiOutput() {
         assertTrue(MarkovListener.isLikelyChatLikeAiReply("probably yea"));
         assertFalse(MarkovListener.isLikelyChatLikeAiReply("first line\nsecond line"));
