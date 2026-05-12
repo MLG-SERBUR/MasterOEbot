@@ -70,6 +70,32 @@ class RoundRobinGenerativeAiResponderTest {
     }
 
     @Test
+    void hidesGroqReasoningOutputForReasoningModels() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "qwen/qwen3-32b", Map.of(), false),
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "openai/gpt-oss-20b", Map.of(), false),
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "llama-3.3-70b-versatile", Map.of(), false)
+        ), "system prompt");
+        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
+
+        responder.generateReply(request).join();
+        responder.generateReply(request).join();
+        responder.generateReply(request).join();
+
+        DataObject qwenPayload = DataObject.fromJson(client.bodies.get(0));
+        assertEquals("hidden", qwenPayload.getString("reasoning_format"));
+        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"include_reasoning\""));
+
+        DataObject gptOssPayload = DataObject.fromJson(client.bodies.get(1));
+        org.junit.jupiter.api.Assertions.assertFalse(gptOssPayload.getBoolean("include_reasoning"));
+        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"reasoning_format\""));
+
+        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"include_reasoning\""));
+        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"reasoning_format\""));
+    }
+
+    @Test
     void retriesWithMinimalEffortWhenReasoningIsMandatory() {
         RecordingHttpClient client = new RecordingHttpClient();
         // First request fails with mandatory reasoning error, second succeeds

@@ -99,6 +99,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             payload.put("reasoning", DataObject.empty()
                     .put("effort", reasoningEffort));
         }
+        suppressGroqReasoningOutput(provider, payload);
 
         byte[] payloadJson = payload.toJson();
         System.out.println("AI Request Payload: " + new String(payloadJson, StandardCharsets.UTF_8));
@@ -115,6 +116,19 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
 
         return builder.build();
+    }
+
+    private void suppressGroqReasoningOutput(Provider provider, DataObject payload) {
+        if (!"Groq".equals(provider.displayName())) {
+            return;
+        }
+
+        String model = provider.model().toLowerCase();
+        if (model.startsWith("openai/gpt-oss-")) {
+            payload.put("include_reasoning", false);
+        } else if (model.startsWith("qwen/qwen3-")) {
+            payload.put("reasoning_format", "hidden");
+        }
     }
 
     private String parseResponse(Provider provider, HttpResponse<String> response) {
