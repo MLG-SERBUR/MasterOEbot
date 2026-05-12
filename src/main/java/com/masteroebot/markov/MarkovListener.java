@@ -38,7 +38,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
-    private static final double RESPONSE_DAMPENING_STEP = 0.2;
+    private static final double RESPONSE_DAMPENING_STEP = 0.1;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final int GENERATIVE_AI_HISTORY_LIMIT = 700;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 20;
