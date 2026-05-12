@@ -88,7 +88,9 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                 .put("messages", DataArray.empty()
                         .add(DataObject.empty()
                                 .put("role", "system")
-                                .put("content", systemPrompt))
+                                .put("content", request.systemPromptOverride() == null
+                                        ? systemPrompt
+                                        : request.systemPromptOverride()))
                         .add(DataObject.empty()
                                 .put("role", "user")
                                 .put("content", String.join("\n", request.recentMessages()))));

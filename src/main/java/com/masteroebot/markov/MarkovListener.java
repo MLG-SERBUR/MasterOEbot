@@ -4,9 +4,13 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageReference;
+import net.dv8tion.jda.api.entities.MessageReaction;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion;
+import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
+import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 import java.util.*;
@@ -28,6 +32,7 @@ public class MarkovListener extends ListenerAdapter {
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
+    private final Map<Long, LinkedHashMap<Long, PendingReactionMessage>> pendingReactionMessagesByChannel = new HashMap<>();
     private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
     private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
@@ -37,6 +42,13 @@ public class MarkovListener extends ListenerAdapter {
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final int GENERATIVE_AI_HISTORY_LIMIT = 700;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 20;
+    private static final int REACTION_AI_PENDING_LIMIT = 12;
+    private static final String REACTION_AI_SYSTEM_PROMPT = """
+            You decide whether MasterOEBot should add existing Discord reactions to messages.
+            Choose a candidate only when MasterOEBot would independently agree with that exact reaction on that exact message.
+            Do not choose reactions merely because other users used them.
+            Return only comma-separated candidate ids, or NONE.
+            """;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
         this(manager, config, jda, new PlaceholderGenerativeAiResponder());
@@ -148,6 +160,18 @@ public class MarkovListener extends ListenerAdapter {
                 }
             });
         }
+    }
+
+    @Override
+    public void onMessageReactionAdd(MessageReactionAddEvent event) {
+        if (!event.isFromGuild()) return;
+
+        long channelId = event.getChannel().getIdLong();
+        if (!config.isEnabled(channelId)) return;
+        if (jda != null && event.getUserIdLong() == jda.getSelfUser().getIdLong()) return;
+
+        event.retrieveMessage().queue(message -> rememberPendingReactionMessage(channelId, message), error -> {
+        });
     }
 
     private synchronized boolean shouldRespondAfterDampening(long channelId) {
@@ -281,9 +305,132 @@ public class MarkovListener extends ListenerAdapter {
                             .setAllowedMentions(Collections.emptyList())
                             .queue(success -> {
                                 trackAiMessage(channelId, safeReply);
+                                considerPendingReactionsAfterAiResponse(channelId);
                                 scheduleSecondReply(event, channelId, content);
                             });
                 });
+    }
+
+    private void rememberPendingReactionMessage(long channelId, Message message) {
+        if (message == null || isMessageFromSelf(message) || message.getAuthor().isBot()) return;
+
+        String content = message.getContentDisplay();
+        if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) return;
+
+        List<MessageReaction> reactions = message.getReactions().stream()
+                .filter(reaction -> !reaction.isSelf())
+                .toList();
+        if (reactions.isEmpty()) return;
+
+        synchronized (pendingReactionMessagesByChannel) {
+            LinkedHashMap<Long, PendingReactionMessage> pendingMessages =
+                    pendingReactionMessagesByChannel.computeIfAbsent(channelId, id -> new LinkedHashMap<>());
+            PendingReactionMessage pendingMessage = pendingMessages.computeIfAbsent(
+                    message.getIdLong(),
+                    id -> new PendingReactionMessage(message.getChannel(), message.getIdLong(), content));
+            for (MessageReaction reaction : reactions) {
+                Emoji emoji = reaction.getEmoji();
+                pendingMessage.reactions.putIfAbsent(
+                        emoji.getAsReactionCode(),
+                        new PendingReaction(emoji.getFormatted(), emoji));
+            }
+        }
+    }
+
+    private void considerPendingReactionsAfterAiResponse(long channelId) {
+        List<PendingReactionMessage> pendingMessages = drainPendingReactionMessages(channelId);
+        if (pendingMessages.isEmpty()) return;
+
+        Map<String, PendingReaction> candidatesById = new LinkedHashMap<>();
+        List<String> promptLines = new ArrayList<>();
+        promptLines.add("Candidates:");
+
+        int candidateNumber = 1;
+        for (PendingReactionMessage message : pendingMessages) {
+            for (PendingReaction reaction : message.reactions.values()) {
+                if (candidateNumber > REACTION_AI_PENDING_LIMIT) break;
+
+                String candidateId = "r" + candidateNumber++;
+                candidatesById.put(candidateId, reaction.withMessage(message.channel, message.messageId));
+                promptLines.add(candidateId
+                        + " messageId=" + message.messageId
+                        + " reaction=" + reaction.display
+                        + " message=\"" + sanitizeReactionPromptText(message.content) + "\"");
+            }
+            if (candidateNumber > REACTION_AI_PENDING_LIMIT) break;
+        }
+
+        if (candidatesById.isEmpty()) return;
+
+        GenerativeAiRequest request = new GenerativeAiRequest(promptLines, REACTION_AI_SYSTEM_PROMPT);
+        CompletableFuture<String> reactionFuture;
+        try {
+            reactionFuture = generativeAiResponder.generateReply(request);
+        } catch (Exception e) {
+            logGenerativeAiFailure(channelId, e);
+            return;
+        }
+
+        if (reactionFuture == null) {
+            logGenerativeAiFailure(channelId, new IllegalStateException("Generative AI responder returned null reaction future"));
+            return;
+        }
+
+        reactionFuture.orTimeout(GENERATIVE_AI_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .whenComplete((reply, error) -> {
+                    if (error != null) {
+                        logGenerativeAiFailure(channelId, error);
+                        return;
+                    }
+
+                    for (String candidateId : parseReactionCandidateIds(reply)) {
+                        PendingReaction reaction = candidatesById.get(candidateId);
+                        if (reaction == null) continue;
+
+                        addAgreedReaction(reaction);
+                    }
+                });
+    }
+
+    private void addAgreedReaction(PendingReaction reaction) {
+        reaction.channel
+                .retrieveMessageById(reaction.messageId)
+                .queue(message -> {
+                    MessageReaction existingReaction = message.getReaction(reaction.emoji);
+                    if (existingReaction != null && !existingReaction.isSelf()) {
+                        message.addReaction(reaction.emoji).queue();
+                    }
+                }, error -> {
+                });
+    }
+
+    private List<PendingReactionMessage> drainPendingReactionMessages(long channelId) {
+        synchronized (pendingReactionMessagesByChannel) {
+            LinkedHashMap<Long, PendingReactionMessage> pendingMessages =
+                    pendingReactionMessagesByChannel.remove(channelId);
+            if (pendingMessages == null || pendingMessages.isEmpty()) {
+                return List.of();
+            }
+            return new ArrayList<>(pendingMessages.values());
+        }
+    }
+
+    private String sanitizeReactionPromptText(String text) {
+        return text.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", " ")
+                .replace("\n", " ");
+    }
+
+    private Set<String> parseReactionCandidateIds(String reply) {
+        if (reply == null) return Set.of();
+
+        Set<String> ids = new LinkedHashSet<>();
+        Matcher matcher = Pattern.compile("\\br\\d+\\b", Pattern.CASE_INSENSITIVE).matcher(reply);
+        while (matcher.find()) {
+            ids.add(matcher.group().toLowerCase(Locale.ROOT));
+        }
+        return ids;
     }
 
     private void logGenerativeAiFailure(long channelId, Throwable error) {
@@ -430,6 +577,29 @@ public class MarkovListener extends ListenerAdapter {
             }
         } catch (InterruptedException e) {
             scheduler.shutdownNow();
+        }
+    }
+
+    private static final class PendingReactionMessage {
+        private final MessageChannelUnion channel;
+        private final long messageId;
+        private final String content;
+        private final LinkedHashMap<String, PendingReaction> reactions = new LinkedHashMap<>();
+
+        private PendingReactionMessage(MessageChannelUnion channel, long messageId, String content) {
+            this.channel = channel;
+            this.messageId = messageId;
+            this.content = content;
+        }
+    }
+
+    private record PendingReaction(MessageChannelUnion channel, long messageId, String display, Emoji emoji) {
+        private PendingReaction(String display, Emoji emoji) {
+            this(null, 0L, display, emoji);
+        }
+
+        private PendingReaction withMessage(MessageChannelUnion channel, long messageId) {
+            return new PendingReaction(channel, messageId, display, emoji);
         }
     }
 }
