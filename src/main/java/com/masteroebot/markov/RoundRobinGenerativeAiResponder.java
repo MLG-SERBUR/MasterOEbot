@@ -7,6 +7,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -100,14 +101,15 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     .put("effort", reasoningEffort));
         }
 
-        System.out.println("AI Request Payload: " + payload.toJson());
+        byte[] payloadJson = payload.toJson();
+        System.out.println("AI Request Payload: " + new String(payloadJson, StandardCharsets.UTF_8));
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(provider.url()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + provider.apiKey())
                 .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
-                .POST(HttpRequest.BodyPublishers.ofByteArray(payload.toJson()));
+                .POST(HttpRequest.BodyPublishers.ofByteArray(payloadJson));
 
         for (Map.Entry<String, String> header : provider.extraHeaders().entrySet()) {
             builder.header(header.getKey(), header.getValue());
