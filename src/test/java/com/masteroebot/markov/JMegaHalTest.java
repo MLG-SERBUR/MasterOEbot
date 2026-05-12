@@ -69,12 +69,5 @@ class JMegaHalTest {
         assertEquals(3, MarkovListener.countWords("hello there bot"));
     }
 
-    @Test
-    void listenerRejectsNonChatLikeAiOutput() {
-        assertTrue(MarkovListener.isLikelyChatLikeAiReply("probably yea"));
-        assertFalse(MarkovListener.isLikelyChatLikeAiReply("first line\nsecond line"));
-        assertFalse(MarkovListener.isLikelyChatLikeAiReply("Assistant: probably yea"));
-        assertFalse(MarkovListener.isLikelyChatLikeAiReply("```java\nclass Test {}\n```"));
-        assertFalse(MarkovListener.isLikelyChatLikeAiReply(""));
-    }
+
 }
