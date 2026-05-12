@@ -82,6 +82,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
+        System.out.println("AI Request: " + request);
         DataObject payload = DataObject.empty()
                 .put("model", provider.model())
                 .put("stream", false)
