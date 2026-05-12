@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -188,27 +189,29 @@ public class MarkovListener extends ListenerAdapter {
         String reply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(generateReplyWithSeed(channelId, content))));
         if (!reply.isEmpty()) {
             int delaySeconds = useDelay ? calculateDelay(reply) : 0;
+            final List<ScheduledFuture<?>> typingTasks = (delaySeconds > 0) ? startTyping(event, delaySeconds) : null;
+            
             Runnable sendReply = () -> {
                 event.getChannel().sendMessage(reply)
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
+                            stopTyping(typingTasks);
                             if (allowSecondReply) {
                                 scheduleSecondReply(event, channelId, content);
                             }
-                        });
+                        }, error -> stopTyping(typingTasks));
             };
 
             if (delaySeconds == 0) {
                 sendReply.run();
             } else {
-                startTyping(event, delaySeconds);
                 scheduler.schedule(sendReply, delaySeconds, TimeUnit.SECONDS);
             }
         }
     }
 
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
-        startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
+        List<ScheduledFuture<?>> typingTasks = startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
 
         List<String> recentMessages = manager.getRecentMessagesForAi(channelId, GENERATIVE_AI_HISTORY_LIMIT);
 
@@ -239,12 +242,14 @@ public class MarkovListener extends ListenerAdapter {
         try {
             replyFuture = generativeAiResponder.generateReply(request);
         } catch (Exception e) {
+            stopTyping(typingTasks);
             logGenerativeAiFailure(channelId, e);
             sendImmediateSeededMarkovReply(event, channelId, content);
             return;
         }
 
         if (replyFuture == null) {
+            stopTyping(typingTasks);
             logGenerativeAiFailure(channelId, new IllegalStateException("Generative AI responder returned null future"));
             sendImmediateSeededMarkovReply(event, channelId, content);
             return;
@@ -252,6 +257,7 @@ public class MarkovListener extends ListenerAdapter {
 
         replyFuture.orTimeout(GENERATIVE_AI_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .whenComplete((reply, error) -> {
+                    stopTyping(typingTasks);
                     if (error != null) {
                         logGenerativeAiFailure(channelId, error);
                         sendImmediateSeededMarkovReply(event, channelId, content);
@@ -300,11 +306,11 @@ public class MarkovListener extends ListenerAdapter {
             String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(manager.generateReply(channelId))));
             if (!secondReply.isEmpty()) {
                 int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
-                startTyping(event, delaySeconds);
+                final List<ScheduledFuture<?>> typingTasks = startTyping(event, delaySeconds);
                 scheduler.schedule(() -> {
                     event.getChannel().sendMessage(secondReply)
                             .setAllowedMentions(Collections.emptyList())
-                            .queue();
+                            .queue(success -> stopTyping(typingTasks), error -> stopTyping(typingTasks));
                 }, delaySeconds, TimeUnit.SECONDS);
             }
         }
@@ -336,10 +342,20 @@ public class MarkovListener extends ListenerAdapter {
         });
     }
 
-    private void startTyping(MessageReceivedEvent event, int delaySeconds) {
+    private List<ScheduledFuture<?>> startTyping(MessageReceivedEvent event, int delaySeconds) {
+        List<ScheduledFuture<?>> futures = new ArrayList<>();
         event.getChannel().sendTyping().queue();
         for (int d = 8; d < delaySeconds; d += 8) {
-            scheduler.schedule(() -> event.getChannel().sendTyping().queue(), d, TimeUnit.SECONDS);
+            futures.add(scheduler.schedule(() -> event.getChannel().sendTyping().queue(), d, TimeUnit.SECONDS));
+        }
+        return futures;
+    }
+
+    private void stopTyping(List<ScheduledFuture<?>> futures) {
+        if (futures != null) {
+            for (ScheduledFuture<?> future : futures) {
+                future.cancel(false);
+            }
         }
     }
 
