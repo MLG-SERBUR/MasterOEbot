@@ -83,7 +83,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                 .put("content", String.join("\n", request.recentMessages()))));
         if (provider.disableReasoning()) {
             payload.put("reasoning", DataObject.empty()
-                    .put("effort", "none"));
+                    .put("effort", "minimal"));
         }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
