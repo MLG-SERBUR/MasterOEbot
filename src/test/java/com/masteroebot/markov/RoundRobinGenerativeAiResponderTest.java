@@ -65,14 +65,35 @@ class RoundRobinGenerativeAiResponderTest {
 
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"reasoning\""));
         DataObject reasoning = DataObject.fromJson(client.bodies.get(1)).getObject("reasoning");
-        org.junit.jupiter.api.Assertions.assertFalse(reasoning.getBoolean("enabled"));
         assertEquals("none", reasoning.getString("effort"));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"exclude\""));
+    }
+
+    @Test
+    void retriesWithMinimalEffortWhenReasoningIsMandatory() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        // First request fails with mandatory reasoning error, second succeeds
+        client.responseSequence.add(new StringResponse(null, 400, "{\"error\":{\"message\":\"Reasoning is mandatory\"}}"));
+        client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok after retry\"}}]}"));
+
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("OpenRouter", "https://openrouter.example/chat", "ok", "om", Map.of(), true)
+        ), "system prompt");
+        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
+
+        String reply = responder.generateReply(request).join();
+
+        assertEquals("ok after retry", reply);
+        assertEquals(2, client.bodies.size());
+        assertEquals("none", DataObject.fromJson(client.bodies.get(0)).getObject("reasoning").getString("effort"));
+        assertEquals("minimal", DataObject.fromJson(client.bodies.get(1)).getObject("reasoning").getString("effort"));
     }
 
     private static final class RecordingHttpClient extends HttpClient {
         private final List<URI> uris = new ArrayList<>();
         private final List<String> bodies = new ArrayList<>();
+        private final List<HttpResponse<String>> responseSequence = new ArrayList<>();
+        private int responseIndex = 0;
 
         @Override
         public Optional<CookieHandler> cookieHandler() {
@@ -135,7 +156,10 @@ class RoundRobinGenerativeAiResponderTest {
                                                                 HttpResponse.BodyHandler<T> responseBodyHandler) {
             uris.add(request.uri());
             bodies.add(readBody(request));
-            return CompletableFuture.completedFuture((HttpResponse<T>) new StringResponse(request));
+            HttpResponse<String> response = responseIndex < responseSequence.size()
+                    ? responseSequence.get(responseIndex++)
+                    : new StringResponse(request, 200, "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}");
+            return CompletableFuture.completedFuture((HttpResponse<T>) response);
         }
 
         @Override
@@ -177,17 +201,7 @@ class RoundRobinGenerativeAiResponderTest {
         }
     }
 
-    private record StringResponse(HttpRequest request) implements HttpResponse<String> {
-        @Override
-        public int statusCode() {
-            return 200;
-        }
-
-        @Override
-        public String body() {
-            return "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}";
-        }
-
+    private record StringResponse(HttpRequest request, int statusCode, String body) implements HttpResponse<String> {
         @Override
         public HttpHeaders headers() {
             return HttpHeaders.of(Map.of(), (name, value) -> true);
@@ -200,7 +214,7 @@ class RoundRobinGenerativeAiResponderTest {
 
         @Override
         public URI uri() {
-            return request.uri();
+            return request != null ? request.uri() : URI.create("http://localhost");
         }
 
         @Override

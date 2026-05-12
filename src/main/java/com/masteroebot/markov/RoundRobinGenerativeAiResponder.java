@@ -37,27 +37,38 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return CompletableFuture.failedFuture(new IllegalStateException("No generative AI providers configured"));
         }
         long deadlineMs = System.currentTimeMillis() + (REQUEST_TIMEOUT_SECONDS * 1000L);
-        return attemptGenerateReply(request, deadlineMs, 0);
+        return attemptGenerateReply(request, deadlineMs, 0, "none");
     }
 
-    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts) {
+    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort) {
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
         if (attempts > 0 && timeRemainingMs <= 2000) {
             return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next provider"));
         }
 
         Provider provider = providers.get(Math.floorMod(nextProvider.getAndIncrement(), providers.size()));
+        return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort);
+    }
+
+    private CompletableFuture<String> attemptWithProvider(Provider provider, GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort) {
         HttpRequest httpRequest;
         try {
-            httpRequest = buildRequest(provider, request);
+            httpRequest = buildRequest(provider, request, reasoningEffort);
         } catch (Exception e) {
             return fallback(request, deadlineMs, attempts + 1, e);
         }
 
-        System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request...");
+        System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + (provider.disableReasoning() ? reasoningEffort : "default") + "...");
         return client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
                 .thenApply(response -> parseResponse(provider, response))
-                .exceptionallyCompose(e -> fallback(request, deadlineMs, attempts + 1, e));
+                .exceptionallyCompose(e -> {
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    if (cause instanceof ReasoningMandatoryException && "none".equals(reasoningEffort)) {
+                        System.out.println("Reasoning is mandatory for " + provider.model() + ". Retrying same provider with 'minimal' effort...");
+                        return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal");
+                    }
+                    return fallback(request, deadlineMs, attempts + 1, e);
+                });
     }
 
     private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e) {
@@ -67,10 +78,10 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return CompletableFuture.failedFuture(e);
         }
         System.out.println("Retrying next provider...");
-        return attemptGenerateReply(request, deadlineMs, attempts);
+        return attemptGenerateReply(request, deadlineMs, attempts, "none");
     }
 
-    private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request) {
+    private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
         DataObject payload = DataObject.empty()
                 .put("model", provider.model())
                 .put("stream", false)
@@ -83,7 +94,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                 .put("content", String.join("\n", request.recentMessages()))));
         if (provider.disableReasoning()) {
             payload.put("reasoning", DataObject.empty()
-                    .put("effort", "minimal"));
+                    .put("effort", reasoningEffort));
         }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -102,8 +113,12 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     private String parseResponse(Provider provider, HttpResponse<String> response) {
         if (response.statusCode() != 200) {
+            String body = response.body();
+            if (response.statusCode() == 400 && body.contains("Reasoning is mandatory")) {
+                throw new ReasoningMandatoryException(provider.model() + " requires reasoning.");
+            }
             throw new IllegalStateException(provider.displayName() + " (" + provider.model()
-                    + ") failed. Status: " + response.statusCode() + ", Body: " + response.body());
+                    + ") failed. Status: " + response.statusCode() + ", Body: " + body);
         }
 
         try {
@@ -165,5 +180,11 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     record Provider(String displayName, String url, String apiKey, String model,
                     Map<String, String> extraHeaders, boolean disableReasoning) {
+    }
+
+    private static final class ReasoningMandatoryException extends RuntimeException {
+        public ReasoningMandatoryException(String message) {
+            super(message);
+        }
     }
 }
