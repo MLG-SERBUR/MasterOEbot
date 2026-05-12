@@ -40,7 +40,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.1;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
-    public static final int GENERATIVE_AI_HISTORY_LIMIT = 400;
+    public static final int GENERATIVE_AI_HISTORY_LIMIT = 200;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 20;
     private static final int REACTION_AI_PENDING_LIMIT = 12;
     private static final String REACTION_AI_SYSTEM_PROMPT = """
