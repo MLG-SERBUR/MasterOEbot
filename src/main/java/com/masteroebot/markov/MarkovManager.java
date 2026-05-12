@@ -6,7 +6,7 @@ import java.util.*;
 
 public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
-    private static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
+    public static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
