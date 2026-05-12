@@ -135,7 +135,7 @@ public class MarkovListener extends ListenerAdapter {
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
         if (responseAllowed && (directlyAddressed || rand.nextDouble() < 0.01)) {
-            sendTriggeredReply(event, channelId, content);
+            sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
             return;
         }
 
@@ -143,7 +143,7 @@ public class MarkovListener extends ListenerAdapter {
         if (reference != null && message.getReferencedMessage() == null) {
             reference.resolve().queue(referenced -> {
                 if (responseAllowed && isMessageFromSelf(referenced)) {
-                    sendTriggeredReply(event, channelId, content);
+                    sendTriggeredReply(event, channelId, content, referenced);
                 }
             });
         }
@@ -171,9 +171,9 @@ public class MarkovListener extends ListenerAdapter {
         sendMarkovReply(event, channelId, content, true, true);
     }
 
-    private void sendTriggeredReply(MessageReceivedEvent event, long channelId, String content) {
+    private void sendTriggeredReply(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
         if (config.isQuestionAiEnabled(channelId)) {
-            sendGenerativeAiReplyWithFallback(event, channelId, content);
+            sendGenerativeAiReplyWithFallback(event, channelId, content, referencedMessage);
             return;
         }
         sendMarkovReplies(event, channelId, content);
@@ -207,10 +207,32 @@ public class MarkovListener extends ListenerAdapter {
         }
     }
 
-    private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content) {
+    private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
         startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
 
         List<String> recentMessages = manager.getRecentMessagesForAi(channelId, GENERATIVE_AI_HISTORY_LIMIT);
+
+        if (referencedMessage != null && !recentMessages.isEmpty()) {
+            String referencedContent = MarkovUtils.getDisplayNameContent(referencedMessage);
+            String formattedReferenced = "<MasterOEBot> " + referencedContent;
+
+            boolean isReferencingLastMessage = recentMessages.size() >= 2
+                    && recentMessages.get(recentMessages.size() - 2).equals(formattedReferenced);
+
+            if (!isReferencingLastMessage) {
+                String currentMessageLine = recentMessages.get(recentMessages.size() - 1);
+                String context = "(replying to MasterOEBot: \"" + referencedContent + "\") ";
+
+                int tagEnd = currentMessageLine.indexOf("> ");
+                if (tagEnd != -1) {
+                    String updated = currentMessageLine.substring(0, tagEnd + 2) + context + currentMessageLine.substring(tagEnd + 2);
+                    recentMessages.set(recentMessages.size() - 1, updated);
+                } else {
+                    recentMessages.set(recentMessages.size() - 1, context + currentMessageLine);
+                }
+            }
+        }
+
         GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
 
         CompletableFuture<String> replyFuture;
