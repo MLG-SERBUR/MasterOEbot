@@ -99,6 +99,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     .put("effort", reasoningEffort));
         }
 
+        System.out.println("AI Request Payload: " + payload.toJson());
+
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(provider.url()))
                 .header("Content-Type", "application/json")
