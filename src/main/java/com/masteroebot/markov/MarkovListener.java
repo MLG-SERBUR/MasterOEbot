@@ -99,7 +99,7 @@ public class MarkovListener extends ListenerAdapter {
 
         manager.loadBrain(channelId);
 
-        String content = message.getContentDisplay();
+        String content = MarkovUtils.getDisplayNameContent(message);
 
         if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) return;
 
@@ -298,12 +298,13 @@ public class MarkovListener extends ListenerAdapter {
         event.getChannel().getHistory().retrievePast(100).queue(messages -> {
             for (int i = messages.size() - 1; i >= 0; i--) {
                 Message msg = messages.get(i);
-                if (!msg.getContentDisplay().trim().isEmpty() && !ProfanityFilter.containsProfanity(msg.getContentDisplay())) {
+                String content = MarkovUtils.getDisplayNameContent(msg).trim();
+                if (!content.isEmpty() && !ProfanityFilter.containsProfanity(content)) {
                     if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
-                        manager.appendBotMessageToAiLog(channelId, msg.getContentDisplay());
+                        manager.appendBotMessageToAiLog(channelId, content);
                     } else {
                         String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
-                        manager.appendToAiLog(channelId, authorName, msg.getContentDisplay());
+                        manager.appendToAiLog(channelId, authorName, content);
                     }
                 }
             }

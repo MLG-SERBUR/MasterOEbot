@@ -232,7 +232,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             // History is newest first, so reverse for AI log
             for (int i = messages.size() - 1; i >= 0; i--) {
                 net.dv8tion.jda.api.entities.Message msg = messages.get(i);
-                String content = msg.getContentDisplay().trim();
+                String content = com.masteroebot.markov.MarkovUtils.getDisplayNameContent(msg).trim();
                 if (content.isEmpty()) continue;
 
                 if (!msg.getAuthor().isBot()) {
