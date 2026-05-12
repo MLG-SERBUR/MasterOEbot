@@ -47,7 +47,7 @@ class MarkovManagerTest {
         manager.appendToAiLog(channelId, "human question?");
         manager.appendBotMessageToAiLog(channelId, "bot answer");
 
-        assertEquals(List.of("human question?", "MasterOEBot: bot answer"),
+        assertEquals(List.of("human question?", "<MasterOEBot> bot answer"),
                 manager.getRecentMessagesForAi(channelId, 500));
     }
 
@@ -59,7 +59,7 @@ class MarkovManagerTest {
         manager.appendBotMessageToAiLog(channelId, "hello there");
         manager.loadBrain(channelId);
 
-        assertEquals(List.of("MasterOEBot: hello there"), manager.getRecentMessagesForAi(channelId, 500));
+        assertEquals(List.of("<MasterOEBot> hello there"), manager.getRecentMessagesForAi(channelId, 500));
         assertTrue(manager.getRecentMessages(channelId, 500).isEmpty());
         assertTrue(Files.notExists(tempDir.resolve(channelId + ".brain")));
         assertTrue(manager.generateReply(channelId).isEmpty());
@@ -72,21 +72,22 @@ class MarkovManagerTest {
 
         manager.appendToBrain(channelId, "old human line");
 
-        assertEquals(List.of("old human line"), manager.getRecentMessagesForAi(channelId, 500));
+        // Should not fall back to brain anymore if log is initialized (even if empty)
+        manager.ensureAiLogInitialized(channelId);
+        assertTrue(manager.getRecentMessagesForAi(channelId, 500).isEmpty());
         assertTrue(Files.exists(tempDir.resolve(channelId + ".ai.log")));
     }
 
     @Test
-    void aiLogInitializationCopiesBrainBeforeCurrentAppend() {
+    void aiLogInitializationNoLongerCopiesBrain() {
         MarkovManager manager = new MarkovManager(null, tempDir);
         long channelId = 123L;
 
         manager.appendToBrain(channelId, "old human line");
         manager.ensureAiLogInitialized(channelId);
-        manager.appendToBrain(channelId, "new human line");
         manager.appendToAiLog(channelId, "new human line");
 
-        assertEquals(List.of("old human line", "new human line"),
+        assertEquals(List.of("new human line"),
                 manager.getRecentMessagesForAi(channelId, 500));
     }
 }

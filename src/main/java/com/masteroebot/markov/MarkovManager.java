@@ -6,7 +6,7 @@ import java.util.*;
 
 public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
-    private static final String BOT_MESSAGE_PREFIX = "MasterOEBot: ";
+    private static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
@@ -100,6 +100,13 @@ public class MarkovManager {
         appendLine(channelId, trimmed, getBrainPath(channelId), "brain");
     }
 
+    public synchronized void appendToAiLog(long channelId, String authorName, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        appendLine(channelId, "<" + authorName + "> " + trimmed, getAiLogPath(channelId), "AI log");
+    }
+
     public synchronized void appendToAiLog(long channelId, String message) {
         if (message == null || message.trim().isEmpty()) return;
         String trimmed = message.trim();
@@ -120,17 +127,16 @@ public class MarkovManager {
             return;
         }
 
-        Path brainPath = getBrainPath(channelId);
-        if (!Files.exists(brainPath)) {
-            return;
-        }
-
         try {
             Files.createDirectories(aiLogPath.getParent());
-            Files.copy(brainPath, aiLogPath);
+            Files.createFile(aiLogPath);
         } catch (IOException e) {
             System.err.println("Failed to initialize AI log for channel " + channelId + ": " + e.getMessage());
         }
+    }
+
+    public synchronized boolean aiLogExists(long channelId) {
+        return Files.exists(getAiLogPath(channelId));
     }
 
     private void appendLine(long channelId, String line, Path path, String logName) {

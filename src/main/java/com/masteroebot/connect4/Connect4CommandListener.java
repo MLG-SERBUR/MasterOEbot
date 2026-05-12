@@ -226,15 +226,27 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     private void seedFromHistory(SlashCommandInteractionEvent event, long channelId) {
         event.getChannel().getHistory().retrievePast(100).queue(messages -> {
-            java.util.List<String> history = new java.util.ArrayList<>();
-            for (net.dv8tion.jda.api.entities.Message msg : messages) {
-                if (!msg.getAuthor().isBot() && !msg.getContentDisplay().trim().isEmpty()) {
-                    history.add(msg.getContentDisplay().trim());
+            java.util.List<String> brainHistory = new java.util.ArrayList<>();
+            markovManager.ensureAiLogInitialized(channelId);
+            
+            // History is newest first, so reverse for AI log
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                net.dv8tion.jda.api.entities.Message msg = messages.get(i);
+                String content = msg.getContentDisplay().trim();
+                if (content.isEmpty()) continue;
+
+                if (!msg.getAuthor().isBot()) {
+                    brainHistory.add(content);
+                    markovManager.appendToAiLog(channelId, msg.getAuthor().getEffectiveName(), content);
+                } else if (msg.getAuthor().getIdLong() == event.getJDA().getSelfUser().getIdLong()) {
+                    markovManager.appendBotMessageToAiLog(channelId, content);
                 }
             }
-            if (!history.isEmpty()) {
-                markovManager.seedFromHistory(channelId, history);
-                event.getHook().sendMessage("Brain seeded with " + history.size() + " messages from channel history.")
+
+            if (!brainHistory.isEmpty()) {
+                markovManager.seedFromHistory(channelId, brainHistory);
+                System.out.println("Brain and AI log for channel " + channelId + " seeded from history via command.");
+                event.getHook().sendMessage("Brain seeded with " + brainHistory.size() + " messages from channel history.")
                         .setEphemeral(true)
                         .queue();
             }

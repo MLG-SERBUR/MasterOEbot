@@ -109,9 +109,11 @@ public class MarkovListener extends ListenerAdapter {
 
         if (!isBot) {
             manager.train(channelId, content);
-            manager.ensureAiLogInitialized(channelId);
+            if (!manager.aiLogExists(channelId)) {
+                seedAiLogFromHistory(event, channelId);
+            }
             manager.appendToBrain(channelId, content);
-            manager.appendToAiLog(channelId, content);
+            manager.appendToAiLog(channelId, message.getAuthor().getEffectiveName(), content);
             
             if (messageCount.incrementAndGet() >= 100) {
                 messageCount.set(0);
@@ -288,6 +290,26 @@ public class MarkovListener extends ListenerAdapter {
 
     private void trackAiMessage(long channelId, String message) {
         manager.appendBotMessageToAiLog(channelId, message);
+    }
+
+    private void seedAiLogFromHistory(MessageReceivedEvent event, long channelId) {
+        System.out.println("Initializing AI log for channel " + channelId + " from history...");
+        manager.ensureAiLogInitialized(channelId);
+        event.getChannel().getHistory().retrievePast(100).queue(messages -> {
+            for (int i = messages.size() - 1; i >= 0; i--) {
+                Message msg = messages.get(i);
+                if (!msg.getContentDisplay().trim().isEmpty() && !ProfanityFilter.containsProfanity(msg.getContentDisplay())) {
+                    if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
+                        manager.appendBotMessageToAiLog(channelId, msg.getContentDisplay());
+                    } else {
+                        manager.appendToAiLog(channelId, msg.getAuthor().getEffectiveName(), msg.getContentDisplay());
+                    }
+                }
+            }
+            System.out.println("AI log for channel " + channelId + " seeded with " + messages.size() + " messages.");
+        }, error -> {
+            System.err.println("Failed to seed AI log from history for channel " + channelId + ": " + error.getMessage());
+        });
     }
 
     private void startTyping(MessageReceivedEvent event, int delaySeconds) {
