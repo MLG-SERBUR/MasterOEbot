@@ -186,7 +186,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void sendMarkovReply(MessageReceivedEvent event, long channelId, String content,
                                  boolean useDelay, boolean allowSecondReply) {
-        String reply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(generateReplyWithSeed(channelId, content))));
+        String reply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(generateReplyWithSeed(channelId, content, 0.2))));
         if (!reply.isEmpty()) {
             int delaySeconds = useDelay ? calculateDelay(reply) : 0;
             final List<ScheduledFuture<?>> typingTasks = (delaySeconds > 0) ? startTyping(event, delaySeconds) : null;
@@ -279,7 +279,10 @@ public class MarkovListener extends ListenerAdapter {
 
                     event.getChannel().sendMessage(safeReply)
                             .setAllowedMentions(Collections.emptyList())
-                            .queue(success -> trackAiMessage(channelId, safeReply));
+                            .queue(success -> {
+                                trackAiMessage(channelId, safeReply);
+                                scheduleSecondReply(event, channelId, content);
+                            });
                 });
     }
 
@@ -303,7 +306,8 @@ public class MarkovListener extends ListenerAdapter {
 
     private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
         if (rand.nextDouble() < 0.1) {
-            String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(manager.generateReply(channelId))));
+            String replyText = generateReplyWithSeed(channelId, content, 0.5);
+            String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(replyText)));
             if (!secondReply.isEmpty()) {
                 int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
                 final List<ScheduledFuture<?>> typingTasks = startTyping(event, delaySeconds);
@@ -370,12 +374,12 @@ public class MarkovListener extends ListenerAdapter {
                 && message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong();
     }
 
-    private String generateReplyWithSeed(long channelId, String originalMessage) {
+    private String generateReplyWithSeed(long channelId, String originalMessage, double seedChance) {
         if (countWords(originalMessage) <= 2) {
             return manager.generateReply(channelId);
         }
 
-        if (rand.nextDouble() < 0.2) {
+        if (rand.nextDouble() < seedChance) {
             String[] words = originalMessage.split("\\s+");
             String[] validWords = Arrays.stream(words)
                     .filter(w -> w.length() > 2)
