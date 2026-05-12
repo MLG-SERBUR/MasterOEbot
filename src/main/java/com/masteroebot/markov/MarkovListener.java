@@ -147,9 +147,14 @@ public class MarkovListener extends ListenerAdapter {
 
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
-        if (responseAllowed && (directlyAddressed || rand.nextDouble() < 0.01)) {
-            sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
-            return;
+        if (responseAllowed) {
+            if (directlyAddressed) {
+                sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
+                return;
+            } else if (rand.nextDouble() < 0.01) {
+                sendMarkovReplies(event, channelId, content);
+                return;
+            }
         }
 
         MessageReference reference = message.getMessageReference();
