@@ -14,6 +14,7 @@ import net.dv8tion.jda.api.events.message.react.MessageReactionAddEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
@@ -33,6 +34,8 @@ public class MarkovListener extends ListenerAdapter {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
     private final Map<Long, LinkedHashMap<Long, PendingReactionMessage>> pendingReactionMessagesByChannel = new HashMap<>();
+    private final Map<Long, Long> lastMentionTimeByChannel = new ConcurrentHashMap<>();
+    private final Set<Long> channelsNeedingScrub = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
     private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
@@ -41,7 +44,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final double RESPONSE_DAMPENING_STEP = 0.1;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final int GENERATIVE_AI_HISTORY_LIMIT = 200;
-    private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 20;
+    private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 60;
     private static final int REACTION_AI_PENDING_LIMIT = 12;
     private static final String REACTION_AI_SYSTEM_PROMPT = """
             You decide whether MasterOEBot should add existing Discord reactions to messages.
@@ -59,6 +62,7 @@ public class MarkovListener extends ListenerAdapter {
         this.config = config;
         this.jda = jda;
         this.generativeAiResponder = generativeAiResponder;
+        this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
     }
 
     public void setJDA(JDA jda) {
@@ -121,6 +125,9 @@ public class MarkovListener extends ListenerAdapter {
         boolean isBot = message.getAuthor().isBot();
 
         if (!isBot) {
+            if (!lastMentionTimeByChannel.containsKey(channelId)) {
+                lastMentionTimeByChannel.put(channelId, System.currentTimeMillis());
+            }
             manager.train(channelId, content);
             if (!manager.aiLogExists(channelId)) {
                 seedAiLogFromHistory(event, channelId);
@@ -146,6 +153,10 @@ public class MarkovListener extends ListenerAdapter {
         String lowerContent = content.toLowerCase();
 
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
+
+        if (directlyAddressed) {
+            lastMentionTimeByChannel.put(channelId, System.currentTimeMillis());
+        }
 
         if (responseAllowed) {
             if (directlyAddressed) {
@@ -225,6 +236,7 @@ public class MarkovListener extends ListenerAdapter {
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
                             stopTyping(typingTasks);
+                            channelsNeedingScrub.add(channelId);
                             if (allowSecondReply) {
                                 scheduleSecondReply(event, channelId, content);
                             }
@@ -460,7 +472,10 @@ public class MarkovListener extends ListenerAdapter {
                 scheduler.schedule(() -> {
                     event.getChannel().sendMessage(secondReply)
                             .setAllowedMentions(Collections.emptyList())
-                            .queue(success -> stopTyping(typingTasks), error -> stopTyping(typingTasks));
+                            .queue(success -> {
+                                stopTyping(typingTasks);
+                                channelsNeedingScrub.add(channelId);
+                            }, error -> stopTyping(typingTasks));
                 }, delaySeconds, TimeUnit.SECONDS);
             }
         }
@@ -468,6 +483,21 @@ public class MarkovListener extends ListenerAdapter {
 
     private void trackAiMessage(long channelId, String message) {
         manager.appendBotMessageToAiLog(channelId, message);
+        channelsNeedingScrub.add(channelId);
+    }
+
+    private void checkAndScrubAiLogs() {
+        long now = System.currentTimeMillis();
+        long hourMs = TimeUnit.HOURS.toMillis(1);
+        Iterator<Long> it = channelsNeedingScrub.iterator();
+        while (it.hasNext()) {
+            Long channelId = it.next();
+            long lastMention = lastMentionTimeByChannel.getOrDefault(channelId, 0L);
+            if (now - lastMention > hourMs) {
+                manager.scrubAiLog(channelId);
+                it.remove();
+            }
+        }
     }
 
     private void seedAiLogFromHistory(MessageReceivedEvent event, long channelId) {
@@ -480,6 +510,7 @@ public class MarkovListener extends ListenerAdapter {
                 if (!content.isEmpty() && !ProfanityFilter.containsProfanity(content)) {
                     if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
                         manager.appendBotMessageToAiLog(channelId, content);
+                        channelsNeedingScrub.add(channelId);
                     } else {
                         String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
                         manager.appendToAiLog(channelId, authorName, content);

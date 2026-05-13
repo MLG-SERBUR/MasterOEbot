@@ -191,6 +191,32 @@ public class MarkovManager {
         return getRecentMessages(channelId, limit);
     }
 
+    public synchronized void scrubAiLog(long channelId) {
+        Path path = getAiLogPath(channelId);
+        if (!Files.exists(path)) return;
+
+        try {
+            List<String> lines = Files.readAllLines(path);
+            List<String> cleanLines = new ArrayList<>();
+            boolean modified = false;
+
+            for (String line : lines) {
+                if (line.trim().startsWith(BOT_MESSAGE_PREFIX.trim())) {
+                    modified = true;
+                } else {
+                    cleanLines.add(line);
+                }
+            }
+
+            if (modified) {
+                Files.write(path, cleanLines);
+                System.out.println("Scrubbed AI log for channel " + channelId);
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to scrub AI log for channel " + channelId + ": " + e.getMessage());
+        }
+    }
+
     private Path getBrainPath(long channelId) {
         return brainDir.resolve(channelId + BRAIN_EXTENSION);
     }
