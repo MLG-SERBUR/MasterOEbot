@@ -99,6 +99,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             payload.put("reasoning", DataObject.empty()
                     .put("effort", reasoningEffort));
         }
+        applyArliAiNonThinkingDefaults(provider, payload);
         suppressGroqReasoningOutput(provider, payload);
 
         byte[] payloadJson = payload.toJson();
@@ -131,6 +132,21 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
     }
 
+    private void applyArliAiNonThinkingDefaults(Provider provider, DataObject payload) {
+        if (!"ArliAI".equals(provider.displayName())) {
+            return;
+        }
+
+        payload.put("temperature", 0.7);
+        payload.put("top_p", 0.8);
+        payload.put("top_k", 20);
+        payload.put("min_p", 0.0);
+        payload.put("presence_penalty", 1.5);
+        payload.put("repetition_penalty", 1.0);
+        payload.put("output_kind", "delta");
+        payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
+    }
+
     private String parseResponse(Provider provider, HttpResponse<String> response) {
         if (response.statusCode() != 200) {
             String body = response.body();
@@ -158,7 +174,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
     }
 
-    private static List<Provider> buildProviders(GenerativeAiConfig config) {
+    static List<Provider> buildProviders(GenerativeAiConfig config) {
         List<Provider> providers = new ArrayList<>();
         if (hasText(config.cerebrasApiKey())) {
             providers.add(new Provider(
@@ -170,16 +186,18 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     false));
         }
         if (hasText(config.groqApiKey())) {
-            providers.add(new Provider(
-                    "Groq",
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    config.groqApiKey(),
-                    config.groqModel(),
-                    Map.of(),
-                    false));
+            for (String model : models(config.groqModels())) {
+                providers.add(new Provider(
+                        "Groq",
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        config.groqApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
         }
         if (hasText(config.openrouterApiKey())) {
-            for (String model : config.openrouterModels()) {
+            for (String model : models(config.openrouterModels())) {
                 providers.add(new Provider(
                         "OpenRouter",
                         "https://openrouter.ai/api/v1/chat/completions",
@@ -191,11 +209,31 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                         true));
             }
         }
+        if (hasText(config.arliApiKey())) {
+            for (String model : models(config.arliModels())) {
+                providers.add(new Provider(
+                        "ArliAI",
+                        "https://api.arliai.com/v1/chat/completions",
+                        config.arliApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
         return providers;
     }
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static List<String> models(List<String> models) {
+        if (models == null) {
+            return List.of();
+        }
+        return models.stream()
+                .filter(RoundRobinGenerativeAiResponder::hasText)
+                .toList();
     }
 
     record Provider(String displayName, String url, String apiKey, String model,

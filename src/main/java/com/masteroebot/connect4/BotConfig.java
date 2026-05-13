@@ -36,9 +36,11 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readString(data, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
                     readString(data, "ai.groqApiKey", defaults.groqApiKey()),
                     readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
+                    readString(data, "ai.arliApiKey", defaults.arliApiKey()),
                     readString(data, "ai.cerebrasModel", defaults.cerebrasModel()),
-                    readString(data, "ai.groqModel", defaults.groqModel()),
-                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()));
+                    readStringListWithLegacy(data, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
+                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()),
+                    readStringList(data, "ai.arliModels", defaults.arliModels()));
 
             return new BotConfig(token, generativeAiConfig);
         }
@@ -69,6 +71,16 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
 
     private static List<String> readStringList(Map<String, Object> map, String dottedPath, List<String> defaultValue) {
         List<String> value = readStringList(map, dottedPath);
+        return value == null || value.isEmpty() ? defaultValue : value;
+    }
+
+    private static List<String> readStringListWithLegacy(Map<String, Object> map, String dottedPath,
+                                                         String legacyDottedPath, List<String> defaultValue) {
+        List<String> value = readStringList(map, dottedPath);
+        if (value != null && !value.isEmpty()) {
+            return value;
+        }
+        value = readStringList(map, legacyDottedPath);
         return value == null || value.isEmpty() ? defaultValue : value;
     }
 
