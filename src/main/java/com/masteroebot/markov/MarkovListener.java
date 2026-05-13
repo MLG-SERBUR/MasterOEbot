@@ -34,7 +34,7 @@ public class MarkovListener extends ListenerAdapter {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
     private final Map<Long, LinkedHashMap<Long, PendingReactionMessage>> pendingReactionMessagesByChannel = new HashMap<>();
-    private final Map<Long, Long> lastMentionTimeByChannel = new ConcurrentHashMap<>();
+    private final Map<Long, Long> firstInvocationTimeByChannel = new ConcurrentHashMap<>();
     private final Set<Long> channelsNeedingScrub = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
@@ -125,9 +125,6 @@ public class MarkovListener extends ListenerAdapter {
         boolean isBot = message.getAuthor().isBot();
 
         if (!isBot) {
-            if (!lastMentionTimeByChannel.containsKey(channelId)) {
-                lastMentionTimeByChannel.put(channelId, System.currentTimeMillis());
-            }
             manager.train(channelId, content);
             if (!manager.aiLogExists(channelId)) {
                 seedAiLogFromHistory(event, channelId);
@@ -155,7 +152,8 @@ public class MarkovListener extends ListenerAdapter {
         boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
 
         if (directlyAddressed) {
-            lastMentionTimeByChannel.put(channelId, System.currentTimeMillis());
+            firstInvocationTimeByChannel.putIfAbsent(channelId, System.currentTimeMillis());
+            channelsNeedingScrub.add(channelId);
         }
 
         if (responseAllowed) {
@@ -492,9 +490,10 @@ public class MarkovListener extends ListenerAdapter {
         Iterator<Long> it = channelsNeedingScrub.iterator();
         while (it.hasNext()) {
             Long channelId = it.next();
-            long lastMention = lastMentionTimeByChannel.getOrDefault(channelId, 0L);
-            if (now - lastMention > hourMs) {
+            Long firstInvocation = firstInvocationTimeByChannel.get(channelId);
+            if (firstInvocation != null && (now - firstInvocation > hourMs)) {
                 manager.scrubAiLog(channelId);
+                firstInvocationTimeByChannel.remove(channelId);
                 it.remove();
             }
         }
