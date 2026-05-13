@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
-    private static final int REQUEST_TIMEOUT_SECONDS = 18;
+    private static final int REQUEST_TIMEOUT_SECONDS = 60;
     private final HttpClient client;
     private final List<Provider> providers;
     private final String systemPrompt;
