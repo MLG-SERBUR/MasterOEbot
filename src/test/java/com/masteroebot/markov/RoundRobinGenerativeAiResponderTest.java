@@ -63,8 +63,12 @@ class RoundRobinGenerativeAiResponderTest {
         responder.generateReply(request).join();
         responder.generateReply(request).join();
 
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"reasoning\""));
-        DataObject reasoning = DataObject.fromJson(client.bodies.get(1)).getObject("reasoning");
+        DataObject groqPayload = DataObject.fromJson(client.bodies.get(0));
+        org.junit.jupiter.api.Assertions.assertFalse(groqPayload.hasKey("reasoning_effort"));
+        org.junit.jupiter.api.Assertions.assertFalse(groqPayload.hasKey("reasoning"));
+
+        DataObject openRouterPayload = DataObject.fromJson(client.bodies.get(1));
+        DataObject reasoning = openRouterPayload.getObject("reasoning");
         assertEquals("none", reasoning.getString("effort"));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"exclude\""));
     }
@@ -84,13 +88,17 @@ class RoundRobinGenerativeAiResponderTest {
         responder.generateReply(request).join();
 
         DataObject qwenPayload = DataObject.fromJson(client.bodies.get(0));
+        assertEquals("none", qwenPayload.getString("reasoning_effort"));
         assertEquals("hidden", qwenPayload.getString("reasoning_format"));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"include_reasoning\""));
 
         DataObject gptOssPayload = DataObject.fromJson(client.bodies.get(1));
         org.junit.jupiter.api.Assertions.assertFalse(gptOssPayload.getBoolean("include_reasoning"));
+        assertEquals("low", gptOssPayload.getString("reasoning_effort"));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"reasoning_format\""));
 
+        DataObject llamaPayload = DataObject.fromJson(client.bodies.get(2));
+        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"reasoning_effort\""));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"include_reasoning\""));
         org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"reasoning_format\""));
     }

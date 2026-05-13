@@ -162,7 +162,7 @@ public class MarkovListener extends ListenerAdapter {
             if (directlyAddressed) {
                 sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
                 return;
-            } else if (rand.nextDouble() < 0.01) {
+            } else if (rand.nextDouble() < 0.001) {
                 sendMarkovReplies(event, channelId, content);
                 return;
             }
