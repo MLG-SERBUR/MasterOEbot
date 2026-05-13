@@ -116,47 +116,24 @@ class RoundRobinGenerativeAiResponderTest {
     }
 
     @Test
-    void buildsMultipleGroqAndArliModelsFromConfig() {
+    void buildsMultipleGroqModelsFromConfig() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
                 null,
                 "gk",
                 null,
-                "ak",
                 "cm",
                 List.of("groq-model-1", "groq-model-2"),
-                List.of(),
-                List.of("arli-model-1", "arli-model-2"));
+                List.of());
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
 
-        assertEquals(List.of("groq-model-1", "groq-model-2", "arli-model-1", "arli-model-2"),
+        assertEquals(List.of("groq-model-1", "groq-model-2"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
-        assertEquals(List.of("Groq", "Groq", "ArliAI", "ArliAI"),
+        assertEquals(List.of("Groq", "Groq"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
     }
 
-    @Test
-    void disablesArliAiReasoningWithNonThinkingDefaults() {
-        RecordingHttpClient client = new RecordingHttpClient();
-        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
-                new RoundRobinGenerativeAiResponder.Provider("ArliAI", "https://arliai.example/chat", "ak", "am", Map.of(), false)
-        ), "system prompt");
-        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
-
-        responder.generateReply(request).join();
-
-        DataObject payload = DataObject.fromJson(client.bodies.get(0));
-        assertEquals(0.7, payload.getDouble("temperature"));
-        assertEquals(0.8, payload.getDouble("top_p"));
-        assertEquals(20, payload.getInt("top_k"));
-        assertEquals(0.0, payload.getDouble("min_p"));
-        assertEquals(1.5, payload.getDouble("presence_penalty"));
-        assertEquals(1.0, payload.getDouble("repetition_penalty"));
-        assertEquals("delta", payload.getString("output_kind"));
-        org.junit.jupiter.api.Assertions.assertFalse(payload.getObject("chat_template_kwargs").getBoolean("enable_thinking"));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"reasoning\""));
-    }
 
     private static final class RecordingHttpClient extends HttpClient {
         private final List<URI> uris = new ArrayList<>();

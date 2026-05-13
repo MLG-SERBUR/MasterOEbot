@@ -21,8 +21,8 @@ A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback 
 > Never commit `config.yaml` with a real token.
 
 AI replies use configured providers round-robin. Keys can live in `config.yaml` or env vars:
-`CEREBRAS_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `ARLI_API_KEY`, `ARLIAI_API_KEY`.
-Use `groqModels`, `openrouterModels`, and `arliModels` lists to cycle multiple models. Legacy `groqModel` still loads.
+`CEREBRAS_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
+Use `groqModels` and `openrouterModels` lists to cycle multiple models. Legacy `groqModel` still loads.
 
 ## Discord setup (Developer Portal)
 1. Go to **https://discord.com/developers/applications**.

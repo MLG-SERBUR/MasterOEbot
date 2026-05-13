@@ -99,7 +99,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             payload.put("reasoning", DataObject.empty()
                     .put("effort", reasoningEffort));
         }
-        applyArliAiNonThinkingDefaults(provider, payload);
         suppressGroqReasoningOutput(provider, payload);
 
         byte[] payloadJson = payload.toJson();
@@ -132,20 +131,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
     }
 
-    private void applyArliAiNonThinkingDefaults(Provider provider, DataObject payload) {
-        if (!"ArliAI".equals(provider.displayName())) {
-            return;
-        }
-
-        payload.put("temperature", 0.7);
-        payload.put("top_p", 0.8);
-        payload.put("top_k", 20);
-        payload.put("min_p", 0.0);
-        payload.put("presence_penalty", 1.5);
-        payload.put("repetition_penalty", 1.0);
-        payload.put("output_kind", "delta");
-        payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
-    }
 
     private String parseResponse(Provider provider, HttpResponse<String> response) {
         if (response.statusCode() != 200) {
@@ -207,17 +192,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                 "HTTP-Referer", "https://github.com/MLG-SERBUR/MasterOEbot",
                                 "X-Title", "MasterOEbot"),
                         true));
-            }
-        }
-        if (hasText(config.arliApiKey())) {
-            for (String model : models(config.arliModels())) {
-                providers.add(new Provider(
-                        "ArliAI",
-                        "https://api.arliai.com/v1/chat/completions",
-                        config.arliApiKey(),
-                        model,
-                        Map.of(),
-                        false));
             }
         }
         return providers;
