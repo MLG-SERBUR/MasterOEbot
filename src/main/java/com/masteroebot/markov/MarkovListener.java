@@ -63,6 +63,17 @@ public class MarkovListener extends ListenerAdapter {
         this.jda = jda;
         this.generativeAiResponder = generativeAiResponder;
         this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
+        startStartupTimers();
+    }
+
+    private void startStartupTimers() {
+        long now = System.currentTimeMillis();
+        for (long channelId : config.getEnabledChannelIds()) {
+            if (manager.aiLogExists(channelId)) {
+                firstInvocationTimeByChannel.putIfAbsent(channelId, now);
+                channelsNeedingScrub.add(channelId);
+            }
+        }
     }
 
     public void setJDA(JDA jda) {

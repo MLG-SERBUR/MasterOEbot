@@ -54,6 +54,16 @@ public class MarkovConfig {
         return channelToggles.getOrDefault(channelId, false);
     }
 
+    public Set<Long> getEnabledChannelIds() {
+        Set<Long> enabled = new HashSet<>();
+        for (Map.Entry<Long, Boolean> entry : channelToggles.entrySet()) {
+            if (entry.getValue()) {
+                enabled.add(entry.getKey());
+            }
+        }
+        return enabled;
+    }
+
     public void setEnabled(long channelId, boolean enabled) {
         channelToggles.put(channelId, enabled);
         save();
