@@ -30,6 +30,10 @@ public class BotMain {
             com.masteroebot.markov.AiLogScrubber.main(args);
             return;
         }
+        if (args.length > 0 && args[0].equals("--scrubuserurls")) {
+            com.masteroebot.markov.UserUrlScrubber.main(args);
+            return;
+        }
         Path configPath = Path.of("config.yaml");
         BotConfig config = BotConfig.load(configPath);
 
