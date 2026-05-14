@@ -53,9 +53,15 @@ public class AiLogScrubber {
             List<String> cleanLines = new ArrayList<>();
             int matchesInFile = 0;
 
+            boolean inBotMessage = false;
             for (int i = 0; i < lines.size(); i++) {
                 String line = lines.get(i);
-                if (line.trim().startsWith(MarkovManager.BOT_MESSAGE_PREFIX.trim())) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("<") && trimmed.contains("> ")) {
+                    inBotMessage = trimmed.startsWith(MarkovManager.BOT_MESSAGE_PREFIX.trim());
+                }
+
+                if (inBotMessage) {
                     System.out.println("  [MATCH] L" + (i + 1) + ": " + line);
                     matchesInFile++;
                     totalMatches.incrementAndGet();

@@ -200,8 +200,14 @@ public class MarkovManager {
             List<String> cleanLines = new ArrayList<>();
             boolean modified = false;
 
+            boolean inBotMessage = false;
             for (String line : lines) {
-                if (line.trim().startsWith(BOT_MESSAGE_PREFIX.trim())) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("<") && trimmed.contains("> ")) {
+                    inBotMessage = trimmed.startsWith(BOT_MESSAGE_PREFIX.trim());
+                }
+
+                if (inBotMessage) {
                     modified = true;
                 } else {
                     cleanLines.add(line);
