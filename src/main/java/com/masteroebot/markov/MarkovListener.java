@@ -130,7 +130,8 @@ public class MarkovListener extends ListenerAdapter {
                 seedAiLogFromHistory(event, channelId);
             }
             manager.appendToBrain(channelId, content);
-            manager.appendToAiLog(channelId, event.getMember().getEffectiveName(), content);
+            String authorName = event.getMember() != null ? event.getMember().getEffectiveName() : event.getAuthor().getEffectiveName();
+            manager.appendToAiLog(channelId, authorName, content);
             
             if (messageCount.incrementAndGet() >= 100) {
                 messageCount.set(0);
