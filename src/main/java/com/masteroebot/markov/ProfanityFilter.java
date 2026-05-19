@@ -18,6 +18,9 @@ public class ProfanityFilter {
         addWord("bitch");
         addWord("sex");
         addWord("erp");
+        addWord("nigga");
+        addWord("goon");
+        addWord("dick");
     }
 
     private static synchronized void updatePattern() {
