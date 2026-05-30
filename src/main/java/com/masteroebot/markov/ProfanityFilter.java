@@ -17,9 +17,11 @@ public class ProfanityFilter {
         addWord("damn");
         addWord("bitch");
         addWord("sex");
+        addWord("poop");
         addWord("erp");
         addWord("nigga");
         addWord("goon");
+        addWord("fart");
         addWord("dick");
     }
 
