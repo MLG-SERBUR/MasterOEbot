@@ -165,13 +165,15 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     static List<Provider> buildProviders(GenerativeAiConfig config) {
         List<Provider> providers = new ArrayList<>();
         if (hasText(config.cerebrasApiKey())) {
-            providers.add(new Provider(
-                    "Cerebras",
-                    "https://api.cerebras.ai/v1/chat/completions",
-                    config.cerebrasApiKey(),
-                    config.cerebrasModel(),
-                    Map.of(),
-                    false));
+            for (String model : models(config.cerebrasModels())) {
+                providers.add(new Provider(
+                        "Cerebras",
+                        "https://api.cerebras.ai/v1/chat/completions",
+                        config.cerebrasApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
         }
         if (hasText(config.groqApiKey())) {
             for (String model : models(config.groqModels())) {

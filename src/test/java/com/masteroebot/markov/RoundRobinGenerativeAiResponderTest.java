@@ -130,7 +130,7 @@ class RoundRobinGenerativeAiResponderTest {
                 null,
                 "gk",
                 null,
-                "cm",
+                List.of("cm"),
                 List.of("groq-model-1", "groq-model-2"),
                 List.of());
 
@@ -139,6 +139,25 @@ class RoundRobinGenerativeAiResponderTest {
         assertEquals(List.of("groq-model-1", "groq-model-2"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
         assertEquals(List.of("Groq", "Groq"),
+                providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
+    }
+
+    @Test
+    void buildsMultipleCerebrasModelsFromConfig() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                "ck",
+                null,
+                null,
+                List.of("cerebras-model-1", "cerebras-model-2"),
+                List.of(),
+                List.of());
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+
+        assertEquals(List.of("cerebras-model-1", "cerebras-model-2"),
+                providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
+        assertEquals(List.of("Cerebras", "Cerebras"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
     }
 

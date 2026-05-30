@@ -22,7 +22,7 @@ A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback 
 
 AI replies use configured providers round-robin. Keys can live in `config.yaml` or env vars:
 `CEREBRAS_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
-Use `groqModels` and `openrouterModels` lists to cycle multiple models. Legacy `groqModel` still loads.
+Use `cerebrasModels`, `groqModels`, and `openrouterModels` lists to cycle multiple models. Legacy `cerebrasModel` and `groqModel` still load.
 
 ## Discord setup (Developer Portal)
 1. Go to **https://discord.com/developers/applications**.

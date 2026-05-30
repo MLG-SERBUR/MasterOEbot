@@ -36,7 +36,7 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readString(data, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
                     readString(data, "ai.groqApiKey", defaults.groqApiKey()),
                     readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
-                    readString(data, "ai.cerebrasModel", defaults.cerebrasModel()),
+                    readStringListWithLegacy(data, "ai.cerebrasModels", "ai.cerebrasModel", defaults.cerebrasModels()),
                     readStringListWithLegacy(data, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
                     readStringList(data, "ai.openrouterModels", defaults.openrouterModels()));
 

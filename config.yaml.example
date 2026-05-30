@@ -6,7 +6,8 @@ ai:
   cerebrasApiKey: ""
   groqApiKey: ""
   openrouterApiKey: ""
-  cerebrasModel: "qwen-3-235b-a22b-instruct-2507"
+  cerebrasModels:
+    - "qwen-3-235b-a22b-instruct-2507"
   groqModels:
     - "meta-llama/llama-4-scout-17b-16e-instruct"
   openrouterModels:

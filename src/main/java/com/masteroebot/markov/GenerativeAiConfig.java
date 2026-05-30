@@ -7,7 +7,7 @@ public record GenerativeAiConfig(
         String cerebrasApiKey,
         String groqApiKey,
         String openrouterApiKey,
-        String cerebrasModel,
+        List<String> cerebrasModels,
         List<String> groqModels,
         List<String> openrouterModels
 ) {
@@ -26,7 +26,7 @@ public record GenerativeAiConfig(
                 System.getenv("CEREBRAS_API_KEY"),
                 System.getenv("GROQ_API_KEY"),
                 System.getenv("OPENROUTER_API_KEY"),
-                "qwen-3-235b-a22b-instruct-2507",
+                List.of("qwen-3-235b-a22b-instruct-2507"),
                 List.of("meta-llama/llama-4-scout-17b-16e-instruct"),
                 List.of("openrouter/free"));
     }
