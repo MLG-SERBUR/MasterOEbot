@@ -2,6 +2,7 @@ package com.masteroebot.markov;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Activity;
+import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageReference;
 import net.dv8tion.jda.api.entities.MessageReaction;
@@ -38,7 +39,7 @@ public class MarkovListener extends ListenerAdapter {
     private final Set<Long> channelsNeedingScrub = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final AtomicInteger messageCount = new AtomicInteger(100);
     private static final Pattern MENTION_PATTERN = Pattern.compile("<@!?\\d+>|<@&\\d+>|<#\\d+>");
-    private static final Pattern CUSTOM_EMOJI_NAME_PATTERN = Pattern.compile(":([A-Za-z0-9_]{2,32}):");
+    private static final Pattern CUSTOM_EMOJI_PATTERN = Pattern.compile("(<a?:([A-Za-z0-9_]{2,32}):(\\d+)>)|(:([A-Za-z0-9_]{2,32}):(\\d+)?)");
     private static final long RESPONSE_DAMPENING_WINDOW_MS = TimeUnit.SECONDS.toMillis(10);
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.1;
@@ -91,14 +92,22 @@ public class MarkovListener extends ListenerAdapter {
                 .replace("@here", "@\u200bhere");
     }
 
-    private String resolveGuildEmoji(MessageReceivedEvent event, String text) {
-        if (text == null || text.isEmpty()) return "";
+    String resolveGuildEmoji(Guild guild, String text) {
+        if (text == null || text.isEmpty() || guild == null) return text != null ? text : "";
 
-        Matcher matcher = CUSTOM_EMOJI_NAME_PATTERN.matcher(text);
-        StringBuffer resolved = new StringBuffer();
+        Matcher matcher = CUSTOM_EMOJI_PATTERN.matcher(text);
+        StringBuilder resolved = new StringBuilder();
         while (matcher.find()) {
-            List<RichCustomEmoji> emojis = event.getGuild().getEmojisByName(matcher.group(1), false);
+            String name;
+            if (matcher.group(1) != null) {
+                name = matcher.group(2);
+            } else {
+                name = matcher.group(5);
+            }
+
+            List<RichCustomEmoji> emojis = guild.getEmojisByName(name, false);
             if (emojis.isEmpty()) {
+                matcher.appendReplacement(resolved, Matcher.quoteReplacement(matcher.group(0)));
                 continue;
             }
 
@@ -236,7 +245,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void sendMarkovReply(MessageReceivedEvent event, long channelId, String content,
                                  boolean useDelay, boolean allowSecondReply) {
-        String reply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(generateReplyWithSeed(channelId, content, 0.2))));
+        String reply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(generateReplyWithSeed(channelId, content, 0.2))));
         if (!reply.isEmpty()) {
             int delaySeconds = useDelay ? calculateDelay(reply) : 0;
             final List<ScheduledFuture<?>> typingTasks = (delaySeconds > 0) ? startTyping(event, delaySeconds) : null;
@@ -317,7 +326,7 @@ public class MarkovListener extends ListenerAdapter {
 
 
 
-                    String safeReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(reply.trim())));
+                    String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(reply.trim())));
                     if (safeReply.trim().isEmpty()) {
                         logGenerativeAiFailure(channelId, new IllegalStateException("Generative AI responder returned empty reply"));
                         sendImmediateSeededMarkovReply(event, channelId, content);
@@ -475,7 +484,7 @@ public class MarkovListener extends ListenerAdapter {
     private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
         if (rand.nextDouble() < 0.1) {
             String replyText = generateReplyWithSeed(channelId, content, 0.5);
-            String secondReply = escapeMassMentions(resolveGuildEmoji(event, sanitizeOutput(replyText)));
+            String secondReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(replyText)));
             if (!secondReply.isEmpty()) {
                 int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
                 final List<ScheduledFuture<?>> typingTasks = startTyping(event, delaySeconds);
