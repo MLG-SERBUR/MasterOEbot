@@ -48,7 +48,7 @@ public class MarkovPollHandler {
             addedAnswers.add(answer);
         }
 
-        int durationHours = 1 + random.nextInt(768);
+        int durationHours = 1 + random.nextInt(168);
         builder.setDuration(durationHours, TimeUnit.HOURS);
         
         MessagePollData poll = builder.build();
