@@ -25,27 +25,44 @@ public class MarkovPollHandler {
 
         String question = generate(channelId, seed);
         if (question == null || question.trim().isEmpty()) {
-            question = "Unknown poll question?";
+            event.reply("Could not generate a poll question. The Markov brain may not have enough data for this channel.").setEphemeral(true).queue();
+            return;
         }
         if (question.length() > 300) {
             question = question.substring(0, 300);
         }
 
-        MessagePollBuilder builder = new MessagePollBuilder(question);
-        
         int numAnswers = 2 + random.nextInt(4); // 2 to 5 answers
         Set<String> addedAnswers = new HashSet<>();
+        int retryCount = 0;
         
         for (int i = 0; i < numAnswers; i++) {
             String answer = generate(channelId, seed);
-            if (answer == null || answer.trim().isEmpty() || addedAnswers.contains(answer)) {
-                answer = "Option " + (i + 1);
+            if (answer == null || answer.trim().isEmpty()) {
+                event.reply("Could not generate a poll answer. The Markov brain may not have enough data for this channel.").setEphemeral(true).queue();
+                return;
             }
+            if (addedAnswers.contains(answer)) {
+                // Duplicate answer, try again but limit retries
+                retryCount++;
+                if (retryCount >= numAnswers * 3) {
+                    event.reply("Could not generate enough unique answers for the poll.").setEphemeral(true).queue();
+                    return;
+                }
+                i--;
+                continue;
+            }
+            retryCount = 0;
             if (answer.length() > 55) {
                 answer = answer.substring(0, 52) + "...";
             }
-            builder.addAnswer(answer);
             addedAnswers.add(answer);
+        }
+
+        MessagePollBuilder builder = new MessagePollBuilder(question);
+        
+        for (String answer : addedAnswers) {
+            builder.addAnswer(answer);
         }
 
         int durationHours = 1 + random.nextInt(168);
