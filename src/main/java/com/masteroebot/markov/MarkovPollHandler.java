@@ -12,14 +12,24 @@ import java.util.concurrent.TimeUnit;
 
 public class MarkovPollHandler {
     private final MarkovManager manager;
+    private final MarkovConfig config;
     private final Random random = new Random();
 
-    public MarkovPollHandler(MarkovManager manager) {
+    public MarkovPollHandler(MarkovManager manager, MarkovConfig config) {
         this.manager = manager;
+        this.config = config;
     }
 
     public void handle(SlashCommandInteractionEvent event) {
         long channelId = event.getChannel().getIdLong();
+        
+        if (!config.isEnabled(channelId)) {
+            event.reply("Markov is not enabled for this channel. Use /markov toggle first.").setEphemeral(true).queue();
+            return;
+        }
+        
+        manager.loadBrain(channelId);
+        
         OptionMapping wordOption = event.getOption("word");
         String seed = wordOption != null ? wordOption.getAsString() : null;
 

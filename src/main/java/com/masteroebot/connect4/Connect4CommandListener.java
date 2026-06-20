@@ -52,7 +52,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
         this.generativeAiResponder = generativeAiResponder;
-        this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager);
+        this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager, markovConfig);
     }
 
     public void setMarkovAvailable(boolean available) {
