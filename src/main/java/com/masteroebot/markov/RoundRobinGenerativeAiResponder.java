@@ -18,7 +18,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     private static final int REQUEST_TIMEOUT_SECONDS = 60;
     private final HttpClient client;
-    private final List<Provider> providers;
+    private final List<Provider> regularProviders;
+    private final List<Provider> fallbackProviders;
     private final String systemPrompt;
     private final AtomicInteger nextProvider = new AtomicInteger(0);
 
@@ -28,35 +29,50 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     RoundRobinGenerativeAiResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
         this.client = client;
-        this.providers = List.copyOf(providers);
+        this.regularProviders = providers.stream()
+                .filter(p -> !"OpenRouter".equals(p.displayName()))
+                .toList();
+        this.fallbackProviders = providers.stream()
+                .filter(p -> "OpenRouter".equals(p.displayName()))
+                .toList();
         this.systemPrompt = systemPrompt;
     }
 
     @Override
     public CompletableFuture<String> generateReply(GenerativeAiRequest request) {
-        if (providers.isEmpty()) {
+        if (regularProviders.isEmpty() && fallbackProviders.isEmpty()) {
             return CompletableFuture.failedFuture(new IllegalStateException("No generative AI providers configured"));
         }
         long deadlineMs = System.currentTimeMillis() + (REQUEST_TIMEOUT_SECONDS * 1000L);
-        return attemptGenerateReply(request, deadlineMs, 0, "none");
+        return attemptGenerateReply(request, deadlineMs, 0, "none", false);
     }
 
-    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort) {
+    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback) {
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
         if (attempts > 0 && timeRemainingMs <= 2000) {
             return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next provider"));
         }
 
-        Provider provider = providers.get(Math.floorMod(nextProvider.getAndIncrement(), providers.size()));
-        return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort);
+        List<Provider> providersToUse = usingFallback ? fallbackProviders : regularProviders;
+        if (providersToUse.isEmpty()) {
+            // If we've exhausted regular providers and have fallback providers, try them
+            if (!usingFallback && !fallbackProviders.isEmpty()) {
+                System.out.println("All regular providers failed, trying OpenRouter fallback...");
+                return attemptGenerateReply(request, deadlineMs, 0, "none", true);
+            }
+            return CompletableFuture.failedFuture(new IllegalStateException("No more providers available"));
+        }
+
+        Provider provider = providersToUse.get(Math.floorMod(nextProvider.getAndIncrement(), providersToUse.size()));
+        return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort, usingFallback);
     }
 
-    private CompletableFuture<String> attemptWithProvider(Provider provider, GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort) {
+    private CompletableFuture<String> attemptWithProvider(Provider provider, GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback) {
         HttpRequest httpRequest;
         try {
             httpRequest = buildRequest(provider, request, reasoningEffort);
         } catch (Exception e) {
-            return fallback(request, deadlineMs, attempts + 1, e);
+            return fallback(request, deadlineMs, attempts + 1, e, usingFallback);
         }
 
         System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + (provider.disableReasoning() ? reasoningEffort : "default") + "...");
@@ -66,20 +82,27 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     if (cause instanceof ReasoningMandatoryException && "none".equals(reasoningEffort)) {
                         System.out.println("Reasoning is mandatory for " + provider.model() + ". Retrying same provider with 'minimal' effort...");
-                        return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal");
+                        return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal", usingFallback);
                     }
-                    return fallback(request, deadlineMs, attempts + 1, e);
+                    return fallback(request, deadlineMs, attempts + 1, e, usingFallback);
                 });
     }
 
-    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e) {
+    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e, boolean usingFallback) {
         System.err.println("Provider failed: " + e.toString());
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
-        if (attempts >= providers.size() || timeRemainingMs <= 2000) {
+        
+        List<Provider> currentProviders = usingFallback ? fallbackProviders : regularProviders;
+        if (attempts >= currentProviders.size() || timeRemainingMs <= 2000) {
+            // If we're using regular providers and they all failed, try fallback
+            if (!usingFallback && !fallbackProviders.isEmpty()) {
+                System.out.println("All regular providers failed, trying OpenRouter fallback...");
+                return attemptGenerateReply(request, deadlineMs, 0, "none", true);
+            }
             return CompletableFuture.failedFuture(e);
         }
         System.out.println("Retrying next provider...");
-        return attemptGenerateReply(request, deadlineMs, attempts, "none");
+        return attemptGenerateReply(request, deadlineMs, attempts, "none", usingFallback);
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {

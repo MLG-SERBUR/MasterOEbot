@@ -43,17 +43,22 @@ class RoundRobinGenerativeAiResponderTest {
         responder.generateReply(request).join();
         responder.generateReply(request).join();
 
+        // OpenRouter should not be in the round-robin rotation, only Cerebras and Groq should cycle
         assertEquals(List.of(
                 URI.create("https://cerebras.example/chat"),
                 URI.create("https://groq.example/chat"),
-                URI.create("https://openrouter.example/chat"),
-                URI.create("https://cerebras.example/chat")
+                URI.create("https://cerebras.example/chat"),
+                URI.create("https://groq.example/chat")
         ), client.uris);
     }
 
     @Test
     void disablesReasoningOnlyForOpenRouter() {
         RecordingHttpClient client = new RecordingHttpClient();
+        // Set up Groq to fail so OpenRouter fallback is triggered
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Groq fails
+        client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok\"}}]}")); // OpenRouter succeeds
+
         RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
                 new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "gm", Map.of(), false),
                 new RoundRobinGenerativeAiResponder.Provider("OpenRouter", "https://openrouter.example/chat", "ok", "om", Map.of(), true)
@@ -61,8 +66,8 @@ class RoundRobinGenerativeAiResponderTest {
         GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
 
         responder.generateReply(request).join();
-        responder.generateReply(request).join();
 
+        // First request should be Groq (which fails), second should be OpenRouter fallback
         DataObject groqPayload = DataObject.fromJson(client.bodies.get(0));
         org.junit.jupiter.api.Assertions.assertFalse(groqPayload.hasKey("reasoning_effort"));
         org.junit.jupiter.api.Assertions.assertFalse(groqPayload.hasKey("reasoning"));
@@ -195,6 +200,32 @@ class RoundRobinGenerativeAiResponderTest {
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
         assertEquals(List.of("Cerebras", "Cerebras"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
+    }
+
+    @Test
+    void usesOpenRouterAsFallbackOnlyAfterAllOthersFail() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        // Set up responses: all regular providers fail, then OpenRouter succeeds
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Cerebras fails
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Groq fails
+        client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok from fallback\"}}]}")); // OpenRouter succeeds
+
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Cerebras", "https://cerebras.example/chat", "ck", "cm", Map.of(), false),
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "gm", Map.of(), false),
+                new RoundRobinGenerativeAiResponder.Provider("OpenRouter", "https://openrouter.example/chat", "ok", "om", Map.of(), true)
+        ), "system prompt");
+        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
+
+        String reply = responder.generateReply(request).join();
+
+        // Should have tried Cerebras, Groq, then OpenRouter as fallback
+        assertEquals(List.of(
+                URI.create("https://cerebras.example/chat"),
+                URI.create("https://groq.example/chat"),
+                URI.create("https://openrouter.example/chat")
+        ), client.uris);
+        assertEquals("ok from fallback", reply);
     }
 
 
