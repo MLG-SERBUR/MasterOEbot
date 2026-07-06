@@ -84,7 +84,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
         DataObject payload = DataObject.empty()
-                .put("model", provider.model())
                 .put("stream", false)
                 .put("messages", DataArray.empty()
                         .add(DataObject.empty()
@@ -95,6 +94,12 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                         .add(DataObject.empty()
                                 .put("role", "user")
                                 .put("content", String.join("\n", request.recentMessages()))));
+        if ("OpenRouter".equals(provider.displayName())) {
+            payload.put("models", DataArray.empty().add(provider.model()));
+            payload.put("provider", DataObject.empty().put("zdr", true));
+        } else {
+            payload.put("model", provider.model());
+        }
         if (provider.disableReasoning()) {
             payload.put("reasoning", DataObject.empty()
                     .put("effort", reasoningEffort));
@@ -116,6 +121,10 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
 
         return builder.build();
+    }
+
+    private static boolean isFreeOpenRouterModel(String model) {
+        return model != null && (model.equals("openrouter/free") || model.contains(":free"));
     }
 
     private void suppressGroqReasoningOutput(Provider provider, DataObject payload, String reasoningEffort) {
@@ -188,6 +197,9 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         }
         if (hasText(config.openrouterApiKey())) {
             for (String model : models(config.openrouterModels())) {
+                if (!isFreeOpenRouterModel(model)) {
+                    continue;
+                }
                 providers.add(new Provider(
                         "OpenRouter",
                         "https://openrouter.ai/api/v1/chat/completions",

@@ -124,6 +124,42 @@ class RoundRobinGenerativeAiResponderTest {
     }
 
     @Test
+    void sendsOpenRouterZdrPayload() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("OpenRouter", "https://openrouter.example/chat", "ok", "z-ai/glm-4.5-air:free", Map.of(), true)
+        ), "system prompt");
+        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
+
+        responder.generateReply(request).join();
+
+        DataObject payload = DataObject.fromJson(client.bodies.get(0));
+        assertEquals("z-ai/glm-4.5-air:free", payload.getArray("models").getString(0));
+        DataObject provider = payload.getObject("provider");
+        assertEquals(true, provider.getBoolean("zdr"));
+        org.junit.jupiter.api.Assertions.assertFalse(payload.hasKey("model"));
+    }
+
+    @Test
+    void buildsOnlyFreeOpenRouterModelsFromConfig() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                null,
+                null,
+                "ok",
+                List.of(),
+                List.of(),
+                List.of("openai/gpt-4.1-mini", "z-ai/glm-4.5-air:free", "openrouter/free"));
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+
+        assertEquals(List.of("z-ai/glm-4.5-air:free", "openrouter/free"),
+                providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
+        assertEquals(List.of("OpenRouter", "OpenRouter"),
+                providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
+    }
+
+    @Test
     void buildsMultipleGroqModelsFromConfig() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
