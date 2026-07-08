@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import com.masteroebot.markov.GenerativeAiRequest;
 import com.masteroebot.markov.GenerativeAiResponder;
@@ -33,6 +36,7 @@ public class Connect4CommandListener extends ListenerAdapter {
     private final GenerativeAiResponder generativeAiResponder;
     private final com.masteroebot.markov.MarkovPollHandler pollHandler;
     private boolean markovAvailable = false;
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     public Connect4CommandListener(boolean prefixFallbackEnabled) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
@@ -79,7 +83,10 @@ public class Connect4CommandListener extends ListenerAdapter {
                         .addSubcommands(
                                 new SubcommandData("iqtest", "Test a raw AI response")
                                         .addOption(OptionType.STRING, "prompt", "Optional chat message appended to the AI prompt", false)
-                        )
+                        ),
+                Commands.slash("remind", "Set a reminder")
+                        .addOption(OptionType.STRING, "time", "Time duration (e.g. 10m, 1h, 30s)", true)
+                        .addOption(OptionType.STRING, "message", "What to remind you about", true)
         ).queue(
                 success -> System.out.println("Registered slash commands."),
                 error -> System.err.println("Slash command registration failed. " + error.getMessage())
@@ -88,7 +95,12 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"master".equals(event.getName())) {
+        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"master".equals(event.getName()) && !"remind".equals(event.getName())) {
+            return;
+        }
+
+        if ("remind".equals(event.getName())) {
+            handleRemindCommand(event);
             return;
         }
 
@@ -212,6 +224,43 @@ public class Connect4CommandListener extends ListenerAdapter {
                             + "\nRaw AI output:";
                     sendEphemeralReply(hook, header + "\n" + (reply == null ? "" : reply));
                 }));
+    }
+
+    private long parseDurationSeconds(String duration) {
+        if (duration == null || duration.isBlank()) return -1;
+        try {
+            duration = duration.trim().toLowerCase();
+            if (duration.endsWith("s")) return Long.parseLong(duration.substring(0, duration.length() - 1));
+            if (duration.endsWith("m")) return Long.parseLong(duration.substring(0, duration.length() - 1)) * 60;
+            if (duration.endsWith("h")) return Long.parseLong(duration.substring(0, duration.length() - 1)) * 3600;
+            if (duration.endsWith("d")) return Long.parseLong(duration.substring(0, duration.length() - 1)) * 86400;
+            return Long.parseLong(duration);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private void handleRemindCommand(SlashCommandInteractionEvent event) {
+        String timeStr = event.getOption("time").getAsString();
+        String message = event.getOption("message").getAsString();
+        long seconds = parseDurationSeconds(timeStr);
+        
+        if (seconds <= 0) {
+            event.reply("Invalid time format. Use something like 10m, 1h, 30s.").setEphemeral(true).queue();
+            return;
+        }
+        
+        event.reply("Reminder set for " + timeStr + ".").setEphemeral(true).queue();
+        
+        net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion channel = event.getChannel();
+        long userId = event.getUser().getIdLong();
+        
+        scheduler.schedule(() -> {
+            channel.sendMessage("<@" + userId + ">, reminder: " + message).queue(
+                    success -> {},
+                    error -> System.err.println("Failed to send reminder: " + error.getMessage())
+            );
+        }, seconds, TimeUnit.SECONDS);
     }
 
     private void sendEphemeralReply(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
