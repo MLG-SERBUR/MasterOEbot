@@ -250,7 +250,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             return;
         }
         
-        event.reply("Reminder set for " + timeStr + ".").setEphemeral(true).queue();
+        event.reply("Reminder set for " + timeStr + ".").setEphemeral(false).queue();
         
         net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion channel = event.getChannel();
         long userId = event.getUser().getIdLong();
