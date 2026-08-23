@@ -11,6 +11,7 @@ import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 import com.masteroebot.markov.RoundRobinGenerativeAiResponder;
+import com.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -59,9 +60,11 @@ public class BotMain {
 
         final BootResult finalBoot = boot;
         Connect4CommandListener listener = boot.listener();
+        TypeRacerCommandListener typeracerListener = boot.typeracerListener();
         JDA jda = boot.jda();
         listener.setMarkovAvailable(markovAvailable);
         listener.registerCommands(jda.updateCommands());
+        typeracerListener.registerCommands(jda.updateCommands());
         System.out.println("Connect4 bot is online.");
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -77,6 +80,7 @@ public class BotMain {
             throws LoginException, InterruptedException {
         Connect4CommandListener listener =
                 new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
+        TypeRacerCommandListener typeracerListener = new TypeRacerCommandListener(enableMessageContent);
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
@@ -85,7 +89,7 @@ public class BotMain {
 
         StartupProbe probe = new StartupProbe();
         JDABuilder builder = JDABuilder.createDefault(token)
-                .addEventListeners(listener, probe);
+                .addEventListeners(listener, typeracerListener, probe);
 
         if (markovListener != null) {
             builder.addEventListeners(markovListener);
@@ -115,10 +119,10 @@ public class BotMain {
             markovListener.setJDA(jda);
         }
 
-        return new BootResult(jda, listener, markovListener);
+        return new BootResult(jda, listener, typeracerListener, markovListener);
     }
 
-    private record BootResult(JDA jda, Connect4CommandListener listener, MarkovListener markovListener) {
+    private record BootResult(JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {
