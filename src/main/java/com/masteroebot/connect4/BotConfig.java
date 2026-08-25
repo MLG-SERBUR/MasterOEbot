@@ -69,17 +69,17 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
 
     private static List<String> readStringList(Map<String, Object> map, String dottedPath, List<String> defaultValue) {
         List<String> value = readStringList(map, dottedPath);
-        return value == null || value.isEmpty() ? defaultValue : value;
+        return value == null ? defaultValue : value;
     }
 
     private static List<String> readStringListWithLegacy(Map<String, Object> map, String dottedPath,
                                                          String legacyDottedPath, List<String> defaultValue) {
         List<String> value = readStringList(map, dottedPath);
-        if (value != null && !value.isEmpty()) {
+        if (value != null) {
             return value;
         }
         value = readStringList(map, legacyDottedPath);
-        return value == null || value.isEmpty() ? defaultValue : value;
+        return value == null ? defaultValue : value;
     }
 
     @SuppressWarnings("unchecked")

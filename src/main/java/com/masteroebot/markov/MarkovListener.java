@@ -44,7 +44,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final int RESPONSE_DAMPENING_FREE_MESSAGES = 2;
     private static final double RESPONSE_DAMPENING_STEP = 0.1;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
-    public static final int GENERATIVE_AI_HISTORY_LIMIT = 200;
+    public static final long GENERATIVE_AI_TOKEN_BUDGET = 8000;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 70;
     private static final int REACTION_AI_PENDING_LIMIT = 12;
     private static final String REACTION_AI_SYSTEM_PROMPT = """
@@ -273,7 +273,7 @@ public class MarkovListener extends ListenerAdapter {
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
         List<ScheduledFuture<?>> typingTasks = startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
 
-        List<String> recentMessages = manager.getRecentMessagesForAi(channelId, GENERATIVE_AI_HISTORY_LIMIT);
+        List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET);
 
         if (referencedMessage != null && !recentMessages.isEmpty()) {
             String referencedContent = MarkovUtils.getDisplayNameContent(referencedMessage);

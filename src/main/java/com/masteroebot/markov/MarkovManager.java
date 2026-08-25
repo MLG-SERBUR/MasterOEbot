@@ -191,6 +191,51 @@ public class MarkovManager {
         return getRecentMessages(channelId, limit);
     }
 
+    /**
+     * Reads history backwards from the newest message until the token budget is
+     * reached. Always includes the newest message.
+     */
+    public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget) {
+        if (tokenBudget <= 0) {
+            return Collections.emptyList();
+        }
+        ensureAiLogInitialized(channelId);
+        Path path = Files.exists(getAiLogPath(channelId)) ? getAiLogPath(channelId) : getBrainPath(channelId);
+        if (!Files.exists(path)) {
+            return Collections.emptyList();
+        }
+
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = Files.newBufferedReader(path)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty()) {
+                    lines.add(trimmed);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to read recent AI log messages for channel " + channelId + ": " + e.getMessage());
+            return Collections.emptyList();
+        }
+        if (lines.isEmpty()) {
+            return lines;
+        }
+
+        int start = lines.size() - 1;
+        long usedTokens = PromptTokenizer.estimateTokens(lines.get(start) + "\n");
+        while (start > 0
+                && PromptTokenizer.estimateTokens(lines.get(start - 1) + "\n") <= tokenBudget - usedTokens) {
+            start--;
+            usedTokens += PromptTokenizer.estimateTokens(lines.get(start) + "\n");
+        }
+        if (start > 0) {
+            System.out.println("AI history pulled up to " + (lines.size() - start)
+                    + " messages (~" + usedTokens + " tokens of " + tokenBudget + " budget).");
+        }
+        return new ArrayList<>(lines.subList(start, lines.size()));
+    }
+
     public synchronized void scrubAiLog(long channelId) {
         Path path = getAiLogPath(channelId);
         if (!Files.exists(path)) return;

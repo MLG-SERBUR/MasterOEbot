@@ -26,6 +26,8 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RoundRobinGenerativeAiResponderTest {
     @Test
@@ -129,7 +131,7 @@ class RoundRobinGenerativeAiResponderTest {
     }
 
     @Test
-    void sendsOpenRouterZdrPayload() {
+    void sendsOpenRouterModelRoutingPayloadWithoutZdr() {
         RecordingHttpClient client = new RecordingHttpClient();
         RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
                 new RoundRobinGenerativeAiResponder.Provider("OpenRouter", "https://openrouter.example/chat", "ok", "z-ai/glm-4.5-air:free", Map.of(), true)
@@ -140,9 +142,46 @@ class RoundRobinGenerativeAiResponderTest {
 
         DataObject payload = DataObject.fromJson(client.bodies.get(0));
         assertEquals("z-ai/glm-4.5-air:free", payload.getArray("models").getString(0));
-        DataObject provider = payload.getObject("provider");
-        assertEquals(true, provider.getBoolean("zdr"));
+        org.junit.jupiter.api.Assertions.assertFalse(payload.hasKey("provider"));
         org.junit.jupiter.api.Assertions.assertFalse(payload.hasKey("model"));
+    }
+
+    @Test
+    void trimsGroqHistoryToTokenBudgetKeepingNewest() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "ok", "openai/gpt-oss-120b", Map.of(), false)
+        ), "system prompt");
+        String filler = "lorem ipsum ".repeat(100);
+        List<String> messages = new ArrayList<>();
+        for (int i = 0; i < 50; i++) {
+            messages.add("msg" + i + " " + filler);
+        }
+        GenerativeAiRequest request = new GenerativeAiRequest(messages);
+
+        responder.generateReply(request).join();
+
+        DataObject payload = DataObject.fromJson(client.bodies.get(0));
+        String content = payload.getArray("messages").getObject(1).getString("content");
+        assertFalse(content.contains("msg0 "));
+        assertTrue(content.endsWith(messages.get(messages.size() - 1)));
+    }
+
+    @Test
+    void emptyCerebrasModelsSkipsProviderEntirely() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                "ck",
+                "gk",
+                null,
+                List.of(),
+                List.of("gm"),
+                List.of());
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+
+        assertFalse(providers.stream().anyMatch(p -> "Cerebras".equals(p.displayName())));
+        assertTrue(providers.stream().anyMatch(p -> "Groq".equals(p.displayName())));
     }
 
     @Test

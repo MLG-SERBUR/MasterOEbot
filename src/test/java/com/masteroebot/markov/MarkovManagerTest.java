@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MarkovManagerTest {
@@ -89,5 +90,66 @@ class MarkovManagerTest {
 
         assertEquals(List.of("new human line"),
                 manager.getRecentMessagesForAi(channelId, 500));
+    }
+
+    @Test
+    void tokenBudgetPullStopsBeforeExceedingBudgetAndKeepsNewest() {
+        MarkovManager manager = new MarkovManager(null, tempDir);
+        long channelId = 123L;
+
+        String filler = "lorem ipsum ".repeat(50);
+        for (int i = 1; i <= 30; i++) {
+            manager.appendToAiLog(channelId, "msg" + i + " " + filler);
+        }
+
+        // Budget fits only a few of the large filler messages
+        List<String> recent = manager.getRecentMessagesForAiUntilTokenBudget(channelId, 1500);
+
+        assertTrue(recent.size() < 30);
+        assertTrue(recent.get(recent.size() - 1).startsWith("msg30 "));
+        assertFalse(recent.get(0).startsWith("msg1 "));
+        for (int i = 0; i < recent.size() - 1; i++) {
+            int current = Integer.parseInt(recent.get(i).split(" ")[0].substring(3));
+            int next = Integer.parseInt(recent.get(i + 1).split(" ")[0].substring(3));
+            assertEquals(current + 1, next, "messages must stay in original order");
+        }
+    }
+
+    @Test
+    void tokenBudgetPullAlwaysIncludesNewestMessageEvenIfOversized() {
+        MarkovManager manager = new MarkovManager(null, tempDir);
+        long channelId = 123L;
+
+        manager.appendToAiLog(channelId, "tiny old message");
+        manager.appendToAiLog(channelId, "huge newest " + "lorem ipsum ".repeat(200));
+
+        List<String> recent = manager.getRecentMessagesForAiUntilTokenBudget(channelId, 10);
+
+        assertEquals(1, recent.size());
+        assertTrue(recent.get(0).startsWith("huge newest "));
+    }
+
+    @Test
+    void tokenBudgetPullIncludesAllSmallMessages() {
+        MarkovManager manager = new MarkovManager(null, tempDir);
+        long channelId = 123L;
+
+        for (int i = 1; i <= 20; i++) {
+            manager.appendToAiLog(channelId, "short message " + i);
+        }
+
+        List<String> recent = manager.getRecentMessagesForAiUntilTokenBudget(channelId, 100000);
+
+        assertEquals(20, recent.size());
+        assertEquals("short message 1", recent.get(0));
+        assertEquals("short message 20", recent.get(19));
+    }
+
+    @Test
+    void tokenBudgetPullHandlesEmptyAndInvalidArguments() {
+        MarkovManager manager = new MarkovManager(null, tempDir);
+
+        assertTrue(manager.getRecentMessagesForAiUntilTokenBudget(123L, 8000).isEmpty());
+        assertTrue(manager.getRecentMessagesForAiUntilTokenBudget(123L, 0).isEmpty());
     }
 }

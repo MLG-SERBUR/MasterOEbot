@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     private static final int REQUEST_TIMEOUT_SECONDS = 60;
+    private static final long GROQ_TOKEN_BUDGET = 8000;
     private final HttpClient client;
     private final List<Provider> regularProviders;
     private final List<Provider> fallbackProviders;
@@ -116,10 +117,9 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                         : request.systemPromptOverride()))
                         .add(DataObject.empty()
                                 .put("role", "user")
-                                .put("content", String.join("\n", request.recentMessages()))));
+                                .put("content", String.join("\n", capForGroq(provider, request.recentMessages())))));
         if ("OpenRouter".equals(provider.displayName())) {
             payload.put("models", DataArray.empty().add(provider.model()));
-            payload.put("provider", DataObject.empty().put("zdr", true));
         } else {
             payload.put("model", provider.model());
         }
@@ -148,6 +148,31 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     private static boolean isFreeOpenRouterModel(String model) {
         return model != null && (model.equals("openrouter/free") || model.contains(":free"));
+    }
+
+    private static List<String> capForGroq(Provider provider, List<String> messages) {
+        if (messages == null || messages.isEmpty() || !"Groq".equals(provider.displayName())) {
+            return messages;
+        }
+        long[] tokenCounts = new long[messages.size()];
+        long total = 0;
+        for (int i = 0; i < messages.size(); i++) {
+            tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i));
+            total += tokenCounts[i];
+        }
+        if (total <= GROQ_TOKEN_BUDGET) {
+            return messages;
+        }
+
+        int start = messages.size() - 1;
+        long budget = GROQ_TOKEN_BUDGET - tokenCounts[start];
+        while (start > 0 && tokenCounts[start - 1] <= budget) {
+            start--;
+            budget -= tokenCounts[start];
+        }
+        System.out.println("Trimmed " + start + " oldest messages to fit Groq token budget of "
+                + GROQ_TOKEN_BUDGET + " tokens.");
+        return new ArrayList<>(messages.subList(start, messages.size()));
     }
 
     private void suppressGroqReasoningOutput(Provider provider, DataObject payload, String reasoningEffort) {

@@ -207,7 +207,7 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         long channelId = event.getChannel().getIdLong();
         markovManager.loadBrain(channelId);
-        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessagesForAi(channelId, MarkovListener.GENERATIVE_AI_HISTORY_LIMIT));
+        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessagesForAiUntilTokenBudget(channelId, MarkovListener.GENERATIVE_AI_TOKEN_BUDGET));
         OptionMapping promptOption = event.getOption("prompt");
         if (promptOption != null && !promptOption.getAsString().isBlank()) {
             recentMessages.add(promptOption.getAsString().trim());
