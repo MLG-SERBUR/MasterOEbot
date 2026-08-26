@@ -169,14 +169,8 @@ class RoundRobinGenerativeAiResponderTest {
 
     @Test
     void emptyCerebrasModelsSkipsProviderEntirely() {
-        GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "ck",
-                "gk",
-                null,
-                List.of(),
-                List.of("gm"),
-                List.of());
+        GenerativeAiConfig config = config("ck", "gk", null,
+                List.of(), List.of("gm"), List.of());
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
 
@@ -186,13 +180,8 @@ class RoundRobinGenerativeAiResponderTest {
 
     @Test
     void buildsOnlyFreeOpenRouterModelsFromConfig() {
-        GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                null,
-                null,
-                "ok",
-                List.of(),
-                List.of(),
+        GenerativeAiConfig config = config(null, null, "ok",
+                List.of(), List.of(),
                 List.of("openai/gpt-4.1-mini", "z-ai/glm-4.5-air:free", "openrouter/free"));
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
@@ -205,14 +194,8 @@ class RoundRobinGenerativeAiResponderTest {
 
     @Test
     void buildsMultipleGroqModelsFromConfig() {
-        GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                null,
-                "gk",
-                null,
-                List.of("cm"),
-                List.of("groq-model-1", "groq-model-2"),
-                List.of());
+        GenerativeAiConfig config = config(null, "gk", null,
+                List.of("cm"), List.of("groq-model-1", "groq-model-2"), List.of());
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
 
@@ -224,14 +207,8 @@ class RoundRobinGenerativeAiResponderTest {
 
     @Test
     void buildsMultipleCerebrasModelsFromConfig() {
-        GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "ck",
-                null,
-                null,
-                List.of("cerebras-model-1", "cerebras-model-2"),
-                List.of(),
-                List.of());
+        GenerativeAiConfig config = config("ck", null, null,
+                List.of("cerebras-model-1", "cerebras-model-2"), List.of(), List.of());
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
 
@@ -239,6 +216,62 @@ class RoundRobinGenerativeAiResponderTest {
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::model).toList());
         assertEquals(List.of("Cerebras", "Cerebras"),
                 providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList());
+    }
+
+    @Test
+    void buildsNewProvidersWithCorrectUrls() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                null, null, null,
+                "gemini-key", "mistral-key", "zai-key",
+                "cf-key", "cf-account", "ollama-key", "sn-key",
+                List.of(), List.of(), List.of(),
+                List.of("gemini-model"),
+                List.of("mistral-model"),
+                List.of("zai-model"),
+                List.of("@cf/openai/gpt-oss-120b"),
+                List.of("gpt-oss:120b"),
+                List.of("gpt-oss-120b"));
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+
+        assertEquals(
+                Map.of("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                        "Mistral", "https://api.mistral.ai/v1/chat/completions",
+                        "ZAI", "https://api.z.ai/api/paas/v4/chat/completions",
+                        "Cloudflare", "https://api.cloudflare.com/client/v4/accounts/cf-account/ai/v1/chat/completions",
+                        "Ollama", "https://ollama.com/v1/chat/completions",
+                        "SambaNova", "https://api.sambanova.ai/v1/chat/completions"),
+                providers.stream().collect(java.util.stream.Collectors.toMap(
+                        RoundRobinGenerativeAiResponder.Provider::displayName,
+                        RoundRobinGenerativeAiResponder.Provider::url)));
+    }
+
+    @Test
+    void skipsNewProvidersWhenKeysMissing() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                null, null, null,
+                null, "", null,
+                null, "account-without-key", null, "",
+                List.of(), List.of(), List.of(),
+                List.of("gemini-model"), List.of("m"), List.of("z"), List.of("c"), List.of("o"), List.of("s"));
+
+        assertTrue(RoundRobinGenerativeAiResponder.buildProviders(config).isEmpty());
+    }
+
+    @Test
+    void cloudflareSkippedWithoutAccountIdEvenWithKey() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                null, null, null,
+                null, null, null,
+                "cf-key", null,
+                null, null,
+                List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of("@cf/openai/gpt-oss-120b"), List.of(), List.of());
+
+        assertTrue(RoundRobinGenerativeAiResponder.buildProviders(config).isEmpty());
     }
 
     @Test
@@ -265,6 +298,17 @@ class RoundRobinGenerativeAiResponderTest {
                 URI.create("https://openrouter.example/chat")
         ), client.uris);
         assertEquals("ok from fallback", reply);
+    }
+
+    private static GenerativeAiConfig config(String cerebrasKey, String groqKey, String openrouterKey,
+                                             List<String> cerebrasModels, List<String> groqModels,
+                                             List<String> openrouterModels) {
+        return new GenerativeAiConfig(
+                "system prompt",
+                cerebrasKey, groqKey, openrouterKey,
+                null, null, null, null, null, null, null,
+                cerebrasModels, groqModels, openrouterModels,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
 

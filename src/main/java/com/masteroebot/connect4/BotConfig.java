@@ -36,9 +36,22 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readString(data, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
                     readString(data, "ai.groqApiKey", defaults.groqApiKey()),
                     readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
+                    readString(data, "ai.geminiApiKey", defaults.geminiApiKey()),
+                    readString(data, "ai.mistralApiKey", defaults.mistralApiKey()),
+                    readString(data, "ai.zaiApiKey", defaults.zaiApiKey()),
+                    readString(data, "ai.cloudflareApiKey", defaults.cloudflareApiKey()),
+                    readString(data, "ai.cloudflareAccountId", defaults.cloudflareAccountId()),
+                    readString(data, "ai.ollamaApiKey", defaults.ollamaApiKey()),
+                    readString(data, "ai.sambaNovaApiKey", defaults.sambaNovaApiKey()),
                     readStringListWithLegacy(data, "ai.cerebrasModels", "ai.cerebrasModel", defaults.cerebrasModels()),
                     readStringListWithLegacy(data, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
-                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()));
+                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()),
+                    readStringList(data, "ai.geminiModels", defaults.geminiModels()),
+                    readStringList(data, "ai.mistralModels", defaults.mistralModels()),
+                    readStringList(data, "ai.zaiModels", defaults.zaiModels()),
+                    readStringList(data, "ai.cloudflareModels", defaults.cloudflareModels()),
+                    readStringList(data, "ai.ollamaModels", defaults.ollamaModels()),
+                    readStringList(data, "ai.sambaNovaModels", defaults.sambaNovaModels()));
 
             return new BotConfig(token, generativeAiConfig);
         }

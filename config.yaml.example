@@ -2,10 +2,33 @@ discord:
   token: "PUT_YOUR_BOT_TOKEN_HERE"
 
 ai:
-  # Optional. API keys can also come from CEREBRAS_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY.
+  # All providers are optional; a provider is skipped entirely when its API key
+  # is blank. Keys can also come from env vars: CEREBRAS_API_KEY, GROQ_API_KEY,
+  # OPENROUTER_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, ZAI_API_KEY,
+  # CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID, OLLAMA_API_KEY.
+  #
+  # Free-tier registration links:
+  #   Cerebras:   https://cloud.cerebras.ai            (payment method now required)
+  #   Groq:       https://console.groq.com/keys        (free, no card)
+  #   OpenRouter: https://openrouter.ai/settings/keys  (free, no card)
+  #   Gemini:     https://aistudio.google.com/apikey   (free tier, no card)
+  #   Mistral:    https://console.mistral.ai           (free Experiment tier, phone verification)
+  #   Z.AI:       https://z.ai/manage-apikey/apikey-list (GLM Flash models free, no card)
+  #   Cloudflare: https://dash.cloudflare.com/profile/api-tokens (Workers AI free allocation, no card;
+  #               Account ID is shown on the Cloudflare dashboard home)
+  #   Ollama:     https://ollama.com/settings/keys     (free plan, no card)
+  #   SambaNova:  https://cloud.sambanova.ai/apis      (free tier 20 req/day, no card)
   cerebrasApiKey: ""
   groqApiKey: ""
   openrouterApiKey: ""
+  geminiApiKey: ""
+  mistralApiKey: ""
+  zaiApiKey: ""
+  cloudflareApiKey: ""
+  cloudflareAccountId: ""
+  ollamaApiKey: ""
+  sambaNovaApiKey: ""
+
   cerebrasModels:
     - "qwen-3-235b-a22b-instruct-2507"
   groqModels:
@@ -13,6 +36,36 @@ ai:
   openrouterModels:
     - "z-ai/glm-4.5-air:free"
     - "nvidia/nemotron-3-super-120b-a12b:free"
+  geminiModels:
+    - "gemini-3.7-flash"
+    - "gemini-3.6-flash"
+    - "gemini-3.5-flash"
+    - "gemini-2.5-flash"
+    - "gemini-2.5-flash-lite"
+    - "gemma-4-31b-it"
+  mistralModels:
+    - "mistral-large-latest"
+    - "mistral-medium-latest"
+    - "magistral-small-latest"
+    - "mistral-small-latest"
+    - "codestral-latest"
+    - "open-mistral-nemo"
+    - "ministral-8b-latest"
+  zaiModels:
+    - "glm-4.7-flash"
+    - "glm-4.5-flash"
+  cloudflareModels:
+    - "@cf/openai/gpt-oss-120b"
+  ollamaModels:
+    - "minimax-m3"
+    - "nemotron-3-ultra"
+    - "gpt-oss:120b"
+    - "gemma4:31b"
+  sambaNovaModels:
+    - "DeepSeek-V3.1"
+    - "gpt-oss-120b"
+    - "Meta-Llama-3.3-70B-Instruct"
+
   systemPrompt: |
     You are replying in a Discord channel as user MasterOEBot.
     Use the provided recent chat messages as style examples.

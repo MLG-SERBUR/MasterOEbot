@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -117,7 +118,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                         : request.systemPromptOverride()))
                         .add(DataObject.empty()
                                 .put("role", "user")
-                                .put("content", String.join("\n", capForGroq(provider, request.recentMessages())))));
+                                .put("content", String.join("\n", capForSmallContextProvider(provider, request.recentMessages())))));
         if ("OpenRouter".equals(provider.displayName())) {
             payload.put("models", DataArray.empty().add(provider.model()));
         } else {
@@ -150,8 +151,11 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return model != null && (model.equals("openrouter/free") || model.contains(":free"));
     }
 
-    private static List<String> capForGroq(Provider provider, List<String> messages) {
-        if (messages == null || messages.isEmpty() || !"Groq".equals(provider.displayName())) {
+    private static final Set<String> SMALL_CONTEXT_PROVIDERS = Set.of("Groq", "Cloudflare");
+
+    private static List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
+        if (messages == null || messages.isEmpty()
+                || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
             return messages;
         }
         long[] tokenCounts = new long[messages.size()];
@@ -170,8 +174,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             start--;
             budget -= tokenCounts[start];
         }
-        System.out.println("Trimmed " + start + " oldest messages to fit Groq token budget of "
-                + GROQ_TOKEN_BUDGET + " tokens.");
+        System.out.println("Trimmed " + start + " oldest messages to fit " + provider.displayName()
+                + " token budget of " + GROQ_TOKEN_BUDGET + " tokens.");
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 
@@ -257,6 +261,73 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                 "HTTP-Referer", "https://github.com/MLG-SERBUR/MasterOEbot",
                                 "X-Title", "MasterOEbot"),
                         true));
+            }
+        }
+        if (hasText(config.geminiApiKey())) {
+            for (String model : models(config.geminiModels())) {
+                providers.add(new Provider(
+                        "Gemini",
+                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                        config.geminiApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
+        if (hasText(config.mistralApiKey())) {
+            for (String model : models(config.mistralModels())) {
+                providers.add(new Provider(
+                        "Mistral",
+                        "https://api.mistral.ai/v1/chat/completions",
+                        config.mistralApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
+        if (hasText(config.zaiApiKey())) {
+            for (String model : models(config.zaiModels())) {
+                providers.add(new Provider(
+                        "ZAI",
+                        "https://api.z.ai/api/paas/v4/chat/completions",
+                        config.zaiApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
+        if (hasText(config.cloudflareApiKey()) && hasText(config.cloudflareAccountId())) {
+            for (String model : models(config.cloudflareModels())) {
+                providers.add(new Provider(
+                        "Cloudflare",
+                        "https://api.cloudflare.com/client/v4/accounts/" + config.cloudflareAccountId()
+                                + "/ai/v1/chat/completions",
+                        config.cloudflareApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
+        if (hasText(config.ollamaApiKey())) {
+            for (String model : models(config.ollamaModels())) {
+                providers.add(new Provider(
+                        "Ollama",
+                        "https://ollama.com/v1/chat/completions",
+                        config.ollamaApiKey(),
+                        model,
+                        Map.of(),
+                        false));
+            }
+        }
+        if (hasText(config.sambaNovaApiKey())) {
+            for (String model : models(config.sambaNovaModels())) {
+                providers.add(new Provider(
+                        "SambaNova",
+                        "https://api.sambanova.ai/v1/chat/completions",
+                        config.sambaNovaApiKey(),
+                        model,
+                        Map.of(),
+                        false));
             }
         }
         return providers;
