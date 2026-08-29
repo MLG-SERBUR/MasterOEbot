@@ -46,10 +46,14 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return CompletableFuture.failedFuture(new IllegalStateException("No generative AI providers configured"));
         }
         long deadlineMs = System.currentTimeMillis() + (REQUEST_TIMEOUT_SECONDS * 1000L);
-        return attemptGenerateReply(request, deadlineMs, 0, "none", false);
+        return attemptGenerateReply(request, deadlineMs, 0, "none", false, false);
     }
 
     private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback) {
+        return attemptGenerateReply(request, deadlineMs, attempts, reasoningEffort, usingFallback, false);
+    }
+
+    private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback, boolean calibrationRetryDone) {
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
         if (attempts > 0 && timeRemainingMs <= 2000) {
             return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next provider"));
@@ -60,21 +64,21 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             // If we've exhausted regular providers and have fallback providers, try them
             if (!usingFallback && !fallbackProviders.isEmpty()) {
                 System.out.println("All regular providers failed, trying OpenRouter fallback...");
-                return attemptGenerateReply(request, deadlineMs, 0, "none", true);
+                return attemptGenerateReply(request, deadlineMs, 0, "none", true, calibrationRetryDone);
             }
             return CompletableFuture.failedFuture(new IllegalStateException("No more providers available"));
         }
 
         Provider provider = providersToUse.get(Math.floorMod(nextProvider.getAndIncrement(), providersToUse.size()));
-        return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort, usingFallback);
+        return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort, usingFallback, calibrationRetryDone);
     }
 
-    private CompletableFuture<String> attemptWithProvider(Provider provider, GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback) {
+    private CompletableFuture<String> attemptWithProvider(Provider provider, GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean usingFallback, boolean calibrationRetryDone) {
         HttpRequest httpRequest;
         try {
             httpRequest = buildRequest(provider, request, reasoningEffort);
         } catch (Exception e) {
-            return fallback(request, deadlineMs, attempts + 1, e, usingFallback);
+            return fallback(request, deadlineMs, attempts + 1, e, usingFallback, calibrationRetryDone);
         }
 
         System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + (provider.disableReasoning() ? reasoningEffort : "default") + "...");
@@ -84,27 +88,58 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     Throwable cause = e.getCause() != null ? e.getCause() : e;
                     if (cause instanceof ReasoningMandatoryException && "none".equals(reasoningEffort)) {
                         System.out.println("Reasoning is mandatory for " + provider.model() + ". Retrying same provider with 'minimal' effort...");
-                        return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal", usingFallback);
+                        return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal", usingFallback, calibrationRetryDone);
                     }
-                    return fallback(request, deadlineMs, attempts + 1, e, usingFallback);
+                    // Self-calibration: heuristic underestimated -> update factor and retry once with truncated history
+                    String errorMsg = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+                    if (!calibrationRetryDone && TokenCalibrationManager.isCalibrationError(errorMsg)) {
+                        String promptForCalibration = buildCalibrationPrompt(request, provider);
+                        TokenCalibrationManager.getInstance().recordFromError(promptForCalibration, errorMsg);
+                        Integer actual = TokenCalibrationManager.extractActualTokensForCalibration(errorMsg);
+                        Integer limit = TokenCalibrationManager.extractLimitForCalibration(errorMsg);
+                        if (actual != null && limit != null && request.recentMessages() != null && request.recentMessages().size() > 10) {
+                            double targetRatio = limit * 0.85 / (double) actual;
+                            targetRatio = Math.max(0.3, Math.min(0.85, targetRatio));
+                            int newSize = Math.max(10, (int) (request.recentMessages().size() * targetRatio));
+                            if (newSize < request.recentMessages().size()) {
+                                java.util.List<String> truncated = new java.util.ArrayList<>(request.recentMessages().subList(request.recentMessages().size() - newSize, request.recentMessages().size()));
+                                GenerativeAiRequest truncatedRequest = new GenerativeAiRequest(truncated, request.systemPromptOverride());
+                                String calMsg = "Context exceeded (" + actual + "/" + limit + "). Calibrated factor to " + String.format("%.2f", TokenCalibrationManager.getInstance().getFactor()) + " and retrying with " + newSize + " messages (" + (int) (targetRatio * 100) + "%)...";
+                                System.out.println(calMsg);
+                                return attemptWithProvider(provider, truncatedRequest, deadlineMs, attempts, reasoningEffort, usingFallback, true);
+                            }
+                        }
+                    }
+                    return fallback(request, deadlineMs, attempts + 1, e, usingFallback, calibrationRetryDone);
                 });
     }
 
-    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e, boolean usingFallback) {
+    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e, boolean usingFallback, boolean calibrationRetryDone) {
         System.err.println("Provider failed: " + e.toString());
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
-        
+
         List<Provider> currentProviders = usingFallback ? fallbackProviders : regularProviders;
         if (attempts >= currentProviders.size() || timeRemainingMs <= 2000) {
             // If we're using regular providers and they all failed, try fallback
             if (!usingFallback && !fallbackProviders.isEmpty()) {
                 System.out.println("All regular providers failed, trying OpenRouter fallback...");
-                return attemptGenerateReply(request, deadlineMs, 0, "none", true);
+                return attemptGenerateReply(request, deadlineMs, 0, "none", true, calibrationRetryDone);
             }
             return CompletableFuture.failedFuture(e);
         }
         System.out.println("Retrying next provider...");
-        return attemptGenerateReply(request, deadlineMs, attempts, "none", usingFallback);
+        return attemptGenerateReply(request, deadlineMs, attempts, "none", usingFallback, calibrationRetryDone);
+    }
+
+    private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int attempts, Throwable e, boolean usingFallback) {
+        return fallback(request, deadlineMs, attempts, e, usingFallback, false);
+    }
+
+    private String buildCalibrationPrompt(GenerativeAiRequest request, Provider provider) {
+        String sys = request.systemPromptOverride() != null ? request.systemPromptOverride() : systemPrompt;
+        java.util.List<String> capped = capForSmallContextProvider(provider, request.recentMessages());
+        String joined = capped == null ? "" : String.join("\n", capped);
+        return (sys != null ? sys : "") + "\n" + joined;
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
