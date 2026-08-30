@@ -45,7 +45,7 @@ public class MarkovListener extends ListenerAdapter {
     private static final double RESPONSE_DAMPENING_STEP = 0.1;
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final long GENERATIVE_AI_TOKEN_BUDGET = 8000;
-    private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 70;
+    private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 20;
     private static final int REACTION_AI_PENDING_LIMIT = 12;
     private static final String REACTION_AI_SYSTEM_PROMPT = """
             You decide whether MasterOEBot should add existing Discord reactions to messages.

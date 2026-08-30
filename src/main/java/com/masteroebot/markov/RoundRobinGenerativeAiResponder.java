@@ -17,7 +17,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
-    private static final int REQUEST_TIMEOUT_SECONDS = 60;
+    private static final int REQUEST_TIMEOUT_SECONDS = 20;
     private static final long GROQ_TOKEN_BUDGET = 8000;
     private final HttpClient client;
     private final List<Provider> regularProviders;
@@ -227,6 +227,12 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         } else if (model.startsWith("qwen/qwen3-")) {
             payload.put("reasoning_effort", reasoningEffort);
             payload.put("reasoning_format", "hidden");
+            // ArliAI/vLLM style: Groq docs confirm reasoning_effort="none" disables for qwen3 (qwen/qwen3.6-27b supports none/default),
+            // but underlying vLLM template also respects chat_template_kwargs.enable_thinking=false (see Qwen3, Featherless, vLLM docs).
+            // Add it when we intend to disable reasoning to ensure true non-thinking mode and avoid hidden reasoning time.
+            if ("none".equals(reasoningEffort)) {
+                payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
+            }
         }
     }
 
