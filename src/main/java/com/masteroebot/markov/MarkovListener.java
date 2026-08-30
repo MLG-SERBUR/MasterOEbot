@@ -132,13 +132,19 @@ public class MarkovListener extends ListenerAdapter {
 
         Message message = event.getMessage();
 
-        if (message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) return;
+        if (jda != null && message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
+            return;
+        }
 
         manager.loadBrain(channelId);
 
         String content = MarkovUtils.getDisplayNameContent(message);
 
-        if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) return;
+        if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) {
+            String author = message.getAuthor() != null ? message.getAuthor().getEffectiveName() : "unknown";
+            System.out.println("Ignored message in channel " + channelId + " from " + author + ": empty or starts with ! content='" + content + "'");
+            return;
+        }
 
         boolean responseAllowed = shouldRespondAfterDampening(channelId);
 
@@ -167,10 +173,11 @@ public class MarkovListener extends ListenerAdapter {
             }
         }
 
-        String botName = jda.getSelfUser().getName().toLowerCase();
+        String botName = (jda != null && jda.getSelfUser() != null) ? jda.getSelfUser().getName().toLowerCase() : "masteroebot";
         String lowerContent = content.toLowerCase();
 
-        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelf(message);
+        boolean isReplyToSelfSync = isReplyToSelf(message);
+        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelfSync;
 
         if (directlyAddressed) {
             firstInvocationTimeByChannel.putIfAbsent(channelId, System.currentTimeMillis());
@@ -179,21 +186,52 @@ public class MarkovListener extends ListenerAdapter {
 
         if (responseAllowed) {
             if (directlyAddressed) {
+                System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName));
                 sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
                 return;
             } else if (rand.nextDouble() < 0.001) {
                 sendMarkovReplies(event, channelId, content);
                 return;
+            } else {
+                if (message.getMessageReference() != null) {
+                    System.out.println("Message in channel " + channelId + " has reference but not directlyAddressed (botName=" + botName + " isReplyToSelfSync=" + isReplyToSelfSync + ") content='" + content + "' will try async resolve");
+                }
+            }
+        } else {
+            if (directlyAddressed) {
+                System.out.println("Ignored directlyAddressed message in channel " + channelId + " due to dampening: content='" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName));
             }
         }
 
         MessageReference reference = message.getMessageReference();
         if (reference != null && message.getReferencedMessage() == null) {
+            System.out.println("Attempting async resolve for message in channel " + channelId + " content='" + content + "' responseAllowed=" + responseAllowed + " isReplyToSelfSync=" + isReplyToSelfSync);
             reference.resolve().queue(referenced -> {
-                if (responseAllowed && isMessageFromSelf(referenced)) {
+                boolean isSelf = isMessageFromSelf(referenced);
+                System.out.println("Async resolve result for channel " + channelId + " content='" + content + "' isSelf=" + isSelf + " responseAllowed=" + responseAllowed + " referencedAuthor=" + (referenced != null ? referenced.getAuthor().getEffectiveName() : "null") + " referencedContent='" + (referenced != null ? MarkovUtils.getDisplayNameContent(referenced) : "null") + "'");
+                if (responseAllowed && isSelf) {
+                    System.out.println("Triggered async reply in channel " + channelId + " for content='" + content + "'");
                     sendTriggeredReply(event, channelId, content, referenced);
+                } else {
+                    String reason = !responseAllowed ? "dampened" : (!isSelf ? "not reply to self" : "unknown");
+                    System.out.println("Ignored async reply in channel " + channelId + " content='" + content + "' reason=" + reason);
                 }
+            }, error -> {
+                System.err.println("Failed to resolve referenced message in channel " + channelId + " for content='" + content + "': " + error);
+                error.printStackTrace(System.err);
             });
+        } else if (reference != null && isReplyToSelfSync && !responseAllowed) {
+            // already logged as dampened
+        } else if (directlyAddressed) {
+            // already handled
+        } else if (reference != null) {
+            System.out.println("Message has reference but was not handled: channel " + channelId + " content='" + content + "' isReplyToSelfSync=" + isReplyToSelfSync + " responseAllowed=" + responseAllowed + " referencedMessageCached=" + (message.getReferencedMessage() != null));
+        } else {
+            if (directlyAddressed) {
+                // already handled
+            } else {
+                System.out.println("Ignored non-addressed message in channel " + channelId + " content='" + content + "'");
+            }
         }
     }
 
@@ -219,7 +257,12 @@ public class MarkovListener extends ListenerAdapter {
         recentMessages.addLast(now);
         int dampenedMessages = Math.max(0, recentMessages.size() - RESPONSE_DAMPENING_FREE_MESSAGES);
         double responseChance = Math.max(MIN_RESPONSE_CHANCE, 1.0 - dampenedMessages * RESPONSE_DAMPENING_STEP);
-        return rand.nextDouble() < responseChance;
+        double roll = rand.nextDouble();
+        boolean allowed = roll < responseChance;
+        if (!allowed) {
+            System.out.println("Dampening blocked response in channel " + channelId + ": size=" + recentMessages.size() + " dampened=" + dampenedMessages + " chance=" + responseChance + " roll=" + roll);
+        }
+        return allowed;
     }
 
     private int calculateDelay(String text) {
