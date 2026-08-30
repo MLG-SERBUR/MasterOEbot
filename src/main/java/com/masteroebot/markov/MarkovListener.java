@@ -316,7 +316,11 @@ public class MarkovListener extends ListenerAdapter {
     private void sendGenerativeAiReplyWithFallback(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
         List<ScheduledFuture<?>> typingTasks = startTyping(event, (int) GENERATIVE_AI_TIMEOUT_SECONDS);
 
-        List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET);
+        String systemPrompt = null;
+        if (generativeAiResponder instanceof RoundRobinGenerativeAiResponder rr) {
+            systemPrompt = rr.getSystemPrompt();
+        }
+        List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET, systemPrompt);
 
         if (referencedMessage != null && !recentMessages.isEmpty()) {
             String referencedContent = MarkovUtils.getDisplayNameContent(referencedMessage);

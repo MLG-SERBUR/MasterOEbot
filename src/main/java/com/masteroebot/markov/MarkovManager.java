@@ -194,8 +194,13 @@ public class MarkovManager {
     /**
      * Reads history backwards from the newest message until the token budget is
      * reached. Always includes the newest message.
+     * Accounts for system prompt tokens in budget.
      */
     public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget) {
+        return getRecentMessagesForAiUntilTokenBudget(channelId, tokenBudget, null);
+    }
+
+    public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget, String systemPrompt) {
         if (tokenBudget <= 0) {
             return Collections.emptyList();
         }
@@ -222,16 +227,22 @@ public class MarkovManager {
             return lines;
         }
 
+        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n") : 0;
+        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n"); // role overhead
+        long effectiveBudget = tokenBudget - systemTokens - overheadTokens;
+        if (effectiveBudget < 500) effectiveBudget = tokenBudget - systemTokens; // fallback if overhead too large
+        if (effectiveBudget <= 0) effectiveBudget = tokenBudget;
+
         int start = lines.size() - 1;
         long usedTokens = PromptTokenizer.estimateTokens(lines.get(start) + "\n");
         while (start > 0
-                && PromptTokenizer.estimateTokens(lines.get(start - 1) + "\n") <= tokenBudget - usedTokens) {
+                && PromptTokenizer.estimateTokens(lines.get(start - 1) + "\n") <= effectiveBudget - usedTokens) {
             start--;
             usedTokens += PromptTokenizer.estimateTokens(lines.get(start) + "\n");
         }
         if (start > 0) {
             System.out.println("AI history pulled up to " + (lines.size() - start)
-                    + " messages (~" + usedTokens + " tokens of " + tokenBudget + " budget).");
+                    + " messages (~" + (usedTokens + systemTokens) + " tokens of " + tokenBudget + " budget, system=" + systemTokens + ").");
         }
         return new ArrayList<>(lines.subList(start, lines.size()));
     }

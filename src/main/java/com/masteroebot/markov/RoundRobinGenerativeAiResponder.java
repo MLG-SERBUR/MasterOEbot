@@ -40,6 +40,10 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         this.systemPrompt = systemPrompt;
     }
 
+    public String getSystemPrompt() {
+        return systemPrompt;
+    }
+
     @Override
     public CompletableFuture<String> generateReply(GenerativeAiRequest request) {
         if (regularProviders.isEmpty() && fallbackProviders.isEmpty()) {
@@ -137,23 +141,23 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     private String buildCalibrationPrompt(GenerativeAiRequest request, Provider provider) {
         String sys = request.systemPromptOverride() != null ? request.systemPromptOverride() : systemPrompt;
-        java.util.List<String> capped = capForSmallContextProvider(provider, request.recentMessages());
+        java.util.List<String> capped = capForSmallContextProvider(provider, request.recentMessages(), sys);
         String joined = capped == null ? "" : String.join("\n", capped);
         return (sys != null ? sys : "") + "\n" + joined;
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
+        String effectiveSystemPrompt = request.systemPromptOverride() == null ? systemPrompt : request.systemPromptOverride();
+        List<String> cappedMessages = capForSmallContextProvider(provider, request.recentMessages(), effectiveSystemPrompt);
         DataObject payload = DataObject.empty()
                 .put("stream", false)
                 .put("messages", DataArray.empty()
                         .add(DataObject.empty()
                                 .put("role", "system")
-                                .put("content", request.systemPromptOverride() == null
-                                        ? systemPrompt
-                                        : request.systemPromptOverride()))
+                                .put("content", effectiveSystemPrompt))
                         .add(DataObject.empty()
                                 .put("role", "user")
-                                .put("content", String.join("\n", capForSmallContextProvider(provider, request.recentMessages())))));
+                                .put("content", String.join("\n", cappedMessages))));
         if ("OpenRouter".equals(provider.displayName())) {
             payload.put("models", DataArray.empty().add(provider.model()));
         } else {
@@ -166,7 +170,15 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         suppressGroqReasoningOutput(provider, payload, reasoningEffort);
 
         byte[] payloadJson = payload.toJson();
-        System.out.println("AI Request Payload: " + new String(payloadJson, StandardCharsets.UTF_8));
+        try {
+            int previewCount = Math.min(5, cappedMessages.size());
+            List<String> preview = cappedMessages.subList(Math.max(0, cappedMessages.size() - previewCount), cappedMessages.size());
+            String previewStr = String.join(" | ", preview).replace("\n", " ");
+            if (previewStr.length() > 1000) previewStr = previewStr.substring(0, 1000) + "...";
+            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + (provider.disableReasoning() ? reasoningEffort : "default") + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
+        } catch (Exception logEx) {
+            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
+        }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(provider.url()))
@@ -188,29 +200,40 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     private static final Set<String> SMALL_CONTEXT_PROVIDERS = Set.of("Groq", "Cloudflare");
 
-    private static List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
+    private List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
+        String effectiveSystemPrompt = this.systemPrompt;
+        return capForSmallContextProvider(provider, messages, effectiveSystemPrompt);
+    }
+
+    private static List<String> capForSmallContextProvider(Provider provider, List<String> messages, String systemPrompt) {
         if (messages == null || messages.isEmpty()
                 || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
             return messages;
         }
+        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n") : 0;
+        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n");
+        long effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens - overheadTokens;
+        if (effectiveBudget < 500) effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens;
+        if (effectiveBudget <= 0) effectiveBudget = GROQ_TOKEN_BUDGET;
+
         long[] tokenCounts = new long[messages.size()];
         long total = 0;
         for (int i = 0; i < messages.size(); i++) {
             tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i));
             total += tokenCounts[i];
         }
-        if (total <= GROQ_TOKEN_BUDGET) {
+        if (total <= effectiveBudget) {
             return messages;
         }
 
         int start = messages.size() - 1;
-        long budget = GROQ_TOKEN_BUDGET - tokenCounts[start];
+        long budget = effectiveBudget - tokenCounts[start];
         while (start > 0 && tokenCounts[start - 1] <= budget) {
             start--;
             budget -= tokenCounts[start];
         }
         System.out.println("Trimmed " + start + " oldest messages to fit " + provider.displayName()
-                + " token budget of " + GROQ_TOKEN_BUDGET + " tokens.");
+                + " token budget of " + GROQ_TOKEN_BUDGET + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 
@@ -238,6 +261,8 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
 
     private String parseResponse(Provider provider, HttpResponse<String> response) {
+        String bodyPreview = response.body() != null ? response.body().substring(0, Math.min(2000, response.body().length())) : "null";
+        System.out.println("AI Response: " + provider.displayName() + " (" + provider.model() + ") status=" + response.statusCode() + " body=" + bodyPreview.replace("\n", " "));
         if (response.statusCode() != 200) {
             String body = response.body();
             if (response.statusCode() == 400 && body.contains("Reasoning is mandatory")) {
