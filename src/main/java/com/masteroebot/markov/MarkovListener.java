@@ -30,11 +30,13 @@ public class MarkovListener extends ListenerAdapter {
     private final MarkovManager manager;
     private final MarkovConfig config;
     private final GenerativeAiResponder generativeAiResponder;
+    private final GenerativeAiResponder reactionResponder;
     private JDA jda;
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<Long, Deque<Long>> recentMessagesByChannel = new HashMap<>();
     private final Map<Long, LinkedHashMap<Long, PendingReactionMessage>> pendingReactionMessagesByChannel = new HashMap<>();
+    private final Map<Long, ScheduledFuture<?>> pendingReactionDebounceByChannel = new HashMap<>();
     private final Map<Long, Long> firstInvocationTimeByChannel = new ConcurrentHashMap<>();
     private final Set<Long> channelsNeedingScrub = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final AtomicInteger messageCount = new AtomicInteger(100);
@@ -46,7 +48,10 @@ public class MarkovListener extends ListenerAdapter {
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final long GENERATIVE_AI_TOKEN_BUDGET = 8000;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 15;
-    private static final int REACTION_AI_PENDING_LIMIT = 12;
+    private static final long REACTION_AI_TIMEOUT_SECONDS = 600;
+    private static final long REACTION_DEBOUNCE_MIN_SECONDS = 120;
+    private static final long REACTION_DEBOUNCE_MAX_SECONDS = 300;
+    private static final long REACTION_RATE_LIMIT_DELAY_MS = 1500;
     private static final String REACTION_AI_SYSTEM_PROMPT = """
             You decide whether MasterOEBot should add existing Discord reactions to messages.
             Choose a candidate only when MasterOEBot would independently agree with that exact reaction on that exact message.
@@ -55,14 +60,19 @@ public class MarkovListener extends ListenerAdapter {
             """;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
-        this(manager, config, jda, new PlaceholderGenerativeAiResponder());
+        this(manager, config, jda, new PlaceholderGenerativeAiResponder(), new PlaceholderGenerativeAiResponder());
     }
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder) {
+        this(manager, config, jda, generativeAiResponder, new PlaceholderGenerativeAiResponder());
+    }
+
+    public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder) {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
         this.generativeAiResponder = generativeAiResponder;
+        this.reactionResponder = reactionResponder;
         this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
         startStartupTimers();
     }
@@ -384,7 +394,6 @@ public class MarkovListener extends ListenerAdapter {
                             .setAllowedMentions(Collections.emptyList())
                             .queue(success -> {
                                 trackAiMessage(channelId, safeReply);
-                                considerPendingReactionsAfterAiResponse(channelId);
                                 scheduleSecondReply(event, channelId, content);
                             });
                 });
@@ -414,11 +423,33 @@ public class MarkovListener extends ListenerAdapter {
                         new PendingReaction(emoji.getFormatted(), emoji));
             }
         }
+        scheduleDebouncedReactionEvaluation(channelId);
     }
 
-    private void considerPendingReactionsAfterAiResponse(long channelId) {
+    private void scheduleDebouncedReactionEvaluation(long channelId) {
+        synchronized (pendingReactionDebounceByChannel) {
+            ScheduledFuture<?> existing = pendingReactionDebounceByChannel.get(channelId);
+            if (existing != null && !existing.isDone()) {
+                existing.cancel(false);
+                System.out.println("Cancelled previous reaction debounce for channel " + channelId + " (lull reset)");
+            }
+            long delaySeconds = REACTION_DEBOUNCE_MIN_SECONDS + rand.nextInt((int) (REACTION_DEBOUNCE_MAX_SECONDS - REACTION_DEBOUNCE_MIN_SECONDS + 1));
+            System.out.println("Scheduling debounced reaction evaluation for channel " + channelId + " in " + delaySeconds + "s (waiting for lull)");
+            ScheduledFuture<?> future = scheduler.schedule(() -> {
+                synchronized (pendingReactionDebounceByChannel) {
+                    pendingReactionDebounceByChannel.remove(channelId);
+                }
+                evaluatePendingReactions(channelId);
+            }, delaySeconds, TimeUnit.SECONDS);
+            pendingReactionDebounceByChannel.put(channelId, future);
+        }
+    }
+
+    private void evaluatePendingReactions(long channelId) {
         List<PendingReactionMessage> pendingMessages = drainPendingReactionMessages(channelId);
         if (pendingMessages.isEmpty()) return;
+        // No limit: consider all pending; sort newest-first (higher snowflake = newer)
+        pendingMessages.sort((a, b) -> Long.compare(b.messageId, a.messageId));
 
         Map<String, PendingReaction> candidatesById = new LinkedHashMap<>();
         List<String> promptLines = new ArrayList<>();
@@ -427,8 +458,6 @@ public class MarkovListener extends ListenerAdapter {
         int candidateNumber = 1;
         for (PendingReactionMessage message : pendingMessages) {
             for (PendingReaction reaction : message.reactions.values()) {
-                if (candidateNumber > REACTION_AI_PENDING_LIMIT) break;
-
                 String candidateId = "r" + candidateNumber++;
                 candidatesById.put(candidateId, reaction.withMessage(message.channel, message.messageId));
                 promptLines.add(candidateId
@@ -436,15 +465,15 @@ public class MarkovListener extends ListenerAdapter {
                         + " reaction=" + reaction.display
                         + " message=\"" + sanitizeReactionPromptText(message.content) + "\"");
             }
-            if (candidateNumber > REACTION_AI_PENDING_LIMIT) break;
         }
 
         if (candidatesById.isEmpty()) return;
 
         GenerativeAiRequest request = new GenerativeAiRequest(promptLines, REACTION_AI_SYSTEM_PROMPT);
+        GenerativeAiResponder responderToUse = reactionResponder != null ? reactionResponder : generativeAiResponder;
         CompletableFuture<String> reactionFuture;
         try {
-            reactionFuture = generativeAiResponder.generateReply(request);
+            reactionFuture = responderToUse.generateReply(request);
         } catch (Exception e) {
             logGenerativeAiFailure(channelId, e);
             return;
@@ -455,18 +484,28 @@ public class MarkovListener extends ListenerAdapter {
             return;
         }
 
-        reactionFuture.orTimeout(GENERATIVE_AI_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        long reactionTimeout = (responderToUse instanceof ArliAiReactionResponder) ? ArliAiReactionResponder.getTimeoutSeconds() : REACTION_AI_TIMEOUT_SECONDS;
+        reactionFuture.orTimeout(reactionTimeout, TimeUnit.SECONDS)
                 .whenComplete((reply, error) -> {
                     if (error != null) {
                         logGenerativeAiFailure(channelId, error);
                         return;
                     }
 
+                    List<PendingReaction> agreed = new ArrayList<>();
                     for (String candidateId : parseReactionCandidateIds(reply)) {
                         PendingReaction reaction = candidatesById.get(candidateId);
                         if (reaction == null) continue;
-
-                        addAgreedReaction(reaction);
+                        agreed.add(reaction);
+                    }
+                    if (agreed.isEmpty()) return;
+                    // Newest-first for rate-limit queue
+                    agreed.sort((a, b) -> Long.compare(b.messageId(), a.messageId()));
+                    System.out.println("Queueing " + agreed.size() + " agreed reactions for channel " + channelId + " newest-first with " + REACTION_RATE_LIMIT_DELAY_MS + "ms spacing");
+                    for (int i = 0; i < agreed.size(); i++) {
+                        PendingReaction reaction = agreed.get(i);
+                        long delayMs = i * REACTION_RATE_LIMIT_DELAY_MS;
+                        scheduler.schedule(() -> addAgreedReaction(reaction), delayMs, TimeUnit.MILLISECONDS);
                     }
                 });
     }
@@ -647,6 +686,12 @@ public class MarkovListener extends ListenerAdapter {
 
 
     public void shutdown() {
+        synchronized (pendingReactionDebounceByChannel) {
+            for (ScheduledFuture<?> f : pendingReactionDebounceByChannel.values()) {
+                f.cancel(false);
+            }
+            pendingReactionDebounceByChannel.clear();
+        }
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {

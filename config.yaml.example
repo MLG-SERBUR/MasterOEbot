@@ -5,7 +5,7 @@ ai:
   # All providers are optional; a provider is skipped entirely when its API key
   # is blank. Keys can also come from env vars: CEREBRAS_API_KEY, GROQ_API_KEY,
   # OPENROUTER_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY, ZAI_API_KEY,
-  # CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID, OLLAMA_API_KEY.
+  # CLOUDFLARE_API_KEY, CLOUDFLARE_ACCOUNT_ID, OLLAMA_API_KEY, ARLI_API_KEY / ARLIAI_API_KEY.
   #
   # Free-tier registration links:
   #   Cerebras:   https://cloud.cerebras.ai            (payment method now required)
@@ -18,6 +18,7 @@ ai:
   #               Account ID is shown on the Cloudflare dashboard home)
   #   Ollama:     https://ollama.com/settings/keys     (free plan, no card)
   #   SambaNova:  https://cloud.sambanova.ai/apis      (free tier 20 req/day, no card)
+  #   ArliAI:     https://arliai.com/                  (used for reaction selection, separate timeout)
   cerebrasApiKey: ""
   groqApiKey: ""
   openrouterApiKey: ""
@@ -28,6 +29,7 @@ ai:
   cloudflareAccountId: ""
   ollamaApiKey: ""
   sambaNovaApiKey: ""
+  arliApiKey: ""
 
   cerebrasModels:
     - "qwen-3-235b-a22b-instruct-2507"
@@ -68,6 +70,8 @@ ai:
     - "DeepSeek-V3.1"
     - "gpt-oss-120b"
     - "Meta-Llama-3.3-70B-Instruct"
+  arliModels:
+    - "Qwen3.5-27B-Derestricted"
 
   systemPrompt: |
     You are replying in a Discord channel as user MasterOEBot.

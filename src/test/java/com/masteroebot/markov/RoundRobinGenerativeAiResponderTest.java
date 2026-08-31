@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RoundRobinGenerativeAiResponderTest {
     @Test
-    void cyclesProvidersOnEachInvocation() {
+    void usesOrderedProvidersFirstProviderEachInvocation() {
         RecordingHttpClient client = new RecordingHttpClient();
         RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
                 new RoundRobinGenerativeAiResponder.Provider("Cerebras", "https://cerebras.example/chat", "ck", "cm", Map.of(), false),
@@ -45,10 +45,30 @@ class RoundRobinGenerativeAiResponderTest {
         responder.generateReply(request).join();
         responder.generateReply(request).join();
 
-        // OpenRouter should not be in the round-robin rotation, only Cerebras and Groq should cycle
+        // Ordered fallback: each new request starts at first provider in configured order (Cerebras)
         assertEquals(List.of(
                 URI.create("https://cerebras.example/chat"),
-                URI.create("https://groq.example/chat"),
+                URI.create("https://cerebras.example/chat"),
+                URI.create("https://cerebras.example/chat"),
+                URI.create("https://cerebras.example/chat")
+        ), client.uris);
+    }
+
+    @Test
+    void orderedFallbackTriesNextProviderOnFailure() {
+        RecordingHttpClient client = new RecordingHttpClient();
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // first fails
+        client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok from second\"}}]}")); // second succeeds
+        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Cerebras", "https://cerebras.example/chat", "ck", "cm", Map.of(), false),
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "gm", Map.of(), false)
+        ), "system prompt");
+        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
+
+        String reply = responder.generateReply(request).join();
+
+        assertEquals("ok from second", reply);
+        assertEquals(List.of(
                 URI.create("https://cerebras.example/chat"),
                 URI.create("https://groq.example/chat")
         ), client.uris);
@@ -82,32 +102,35 @@ class RoundRobinGenerativeAiResponderTest {
 
     @Test
     void hidesGroqReasoningOutputForReasoningModels() {
-        RecordingHttpClient client = new RecordingHttpClient();
-        RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
-                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "qwen/qwen3-32b", Map.of(), false),
-                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "openai/gpt-oss-20b", Map.of(), false),
-                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "llama-3.3-70b-versatile", Map.of(), false)
+        // Each provider is tested in isolation to avoid ordering dependencies
+        RecordingHttpClient clientQwen = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responderQwen = new RoundRobinGenerativeAiResponder(clientQwen, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "qwen/qwen3-32b", Map.of(), false)
         ), "system prompt");
-        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"));
-
-        responder.generateReply(request).join();
-        responder.generateReply(request).join();
-        responder.generateReply(request).join();
-
-        DataObject qwenPayload = DataObject.fromJson(client.bodies.get(0));
+        responderQwen.generateReply(new GenerativeAiRequest(List.of("hello?"))).join();
+        DataObject qwenPayload = DataObject.fromJson(clientQwen.bodies.get(0));
         assertEquals("none", qwenPayload.getString("reasoning_effort"));
         assertEquals("hidden", qwenPayload.getString("reasoning_format"));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(0).contains("\"include_reasoning\""));
+        org.junit.jupiter.api.Assertions.assertFalse(clientQwen.bodies.get(0).contains("\"include_reasoning\""));
 
-        DataObject gptOssPayload = DataObject.fromJson(client.bodies.get(1));
+        RecordingHttpClient clientGpt = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responderGpt = new RoundRobinGenerativeAiResponder(clientGpt, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "openai/gpt-oss-20b", Map.of(), false)
+        ), "system prompt");
+        responderGpt.generateReply(new GenerativeAiRequest(List.of("hello?"))).join();
+        DataObject gptOssPayload = DataObject.fromJson(clientGpt.bodies.get(0));
         org.junit.jupiter.api.Assertions.assertFalse(gptOssPayload.getBoolean("include_reasoning"));
         assertEquals("low", gptOssPayload.getString("reasoning_effort"));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(1).contains("\"reasoning_format\""));
+        org.junit.jupiter.api.Assertions.assertFalse(clientGpt.bodies.get(0).contains("\"reasoning_format\""));
 
-        DataObject llamaPayload = DataObject.fromJson(client.bodies.get(2));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"reasoning_effort\""));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"include_reasoning\""));
-        org.junit.jupiter.api.Assertions.assertFalse(client.bodies.get(2).contains("\"reasoning_format\""));
+        RecordingHttpClient clientLlama = new RecordingHttpClient();
+        RoundRobinGenerativeAiResponder responderLlama = new RoundRobinGenerativeAiResponder(clientLlama, List.of(
+                new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "llama-3.3-70b-versatile", Map.of(), false)
+        ), "system prompt");
+        responderLlama.generateReply(new GenerativeAiRequest(List.of("hello?"))).join();
+        org.junit.jupiter.api.Assertions.assertFalse(clientLlama.bodies.get(0).contains("\"reasoning_effort\""));
+        org.junit.jupiter.api.Assertions.assertFalse(clientLlama.bodies.get(0).contains("\"include_reasoning\""));
+        org.junit.jupiter.api.Assertions.assertFalse(clientLlama.bodies.get(0).contains("\"reasoning_format\""));
     }
 
     @Test
@@ -219,19 +242,47 @@ class RoundRobinGenerativeAiResponderTest {
     }
 
     @Test
+    void buildsProvidersInMatrixOrderExcludingArliAi() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                "ck", "gk", "ok",
+                "gemini-key", "mistral-key", "zai-key",
+                "cf-key", "cf-account", "ollama-key", "sn-key", "arli-key",
+                List.of("cerebras-model"),
+                List.of("groq-model"),
+                List.of("z-ai/glm-4.5-air:free"),
+                List.of("gemini-model"),
+                List.of("mistral-model"),
+                List.of("zai-model"),
+                List.of("@cf/openai/gpt-oss-120b"),
+                List.of("gpt-oss:120b"),
+                List.of("gpt-oss-120b"),
+                List.of("Qwen3.5-27B-Derestricted"));
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+
+        // Expected order: Groq, Cerebras, Gemini, Mistral, Cloudflare, Ollama, ZAI, SambaNova, OpenRouter
+        // ArliAI excluded from main responder
+        List<String> actualOrder = providers.stream().map(RoundRobinGenerativeAiResponder.Provider::displayName).toList();
+        assertEquals(List.of("Groq", "Cerebras", "Gemini", "Mistral", "Cloudflare", "Ollama", "ZAI", "SambaNova", "OpenRouter"), actualOrder);
+        assertFalse(actualOrder.contains("ArliAI"));
+    }
+
+    @Test
     void buildsNewProvidersWithCorrectUrls() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
                 null, null, null,
                 "gemini-key", "mistral-key", "zai-key",
-                "cf-key", "cf-account", "ollama-key", "sn-key",
+                "cf-key", "cf-account", "ollama-key", "sn-key", null,
                 List.of(), List.of(), List.of(),
                 List.of("gemini-model"),
                 List.of("mistral-model"),
                 List.of("zai-model"),
                 List.of("@cf/openai/gpt-oss-120b"),
                 List.of("gpt-oss:120b"),
-                List.of("gpt-oss-120b"));
+                List.of("gpt-oss-120b"),
+                List.of());
 
         List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
 
@@ -253,9 +304,9 @@ class RoundRobinGenerativeAiResponderTest {
                 "system prompt",
                 null, null, null,
                 null, "", null,
-                null, "account-without-key", null, "",
+                null, "account-without-key", null, "", null,
                 List.of(), List.of(), List.of(),
-                List.of("gemini-model"), List.of("m"), List.of("z"), List.of("c"), List.of("o"), List.of("s"));
+                List.of("gemini-model"), List.of("m"), List.of("z"), List.of("c"), List.of("o"), List.of("s"), List.of());
 
         assertTrue(RoundRobinGenerativeAiResponder.buildProviders(config).isEmpty());
     }
@@ -267,9 +318,9 @@ class RoundRobinGenerativeAiResponderTest {
                 null, null, null,
                 null, null, null,
                 "cf-key", null,
-                null, null,
+                null, null, null,
                 List.of(), List.of(), List.of(),
-                List.of(), List.of(), List.of(), List.of("@cf/openai/gpt-oss-120b"), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of("@cf/openai/gpt-oss-120b"), List.of(), List.of(), List.of());
 
         assertTrue(RoundRobinGenerativeAiResponder.buildProviders(config).isEmpty());
     }
@@ -278,10 +329,12 @@ class RoundRobinGenerativeAiResponderTest {
     void usesOpenRouterAsFallbackOnlyAfterAllOthersFail() {
         RecordingHttpClient client = new RecordingHttpClient();
         // Set up responses: all regular providers fail, then OpenRouter succeeds
-        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Cerebras fails
-        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Groq fails
+        // Ordered list is Groq, Cerebras, OpenRouter (as injected)
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // Groq fails (first in ordered list if Groq first? but we inject Cerebras first, so Cerebras first)
+        client.responseSequence.add(new StringResponse(null, 500, "Internal server error")); // second fails
         client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok from fallback\"}}]}")); // OpenRouter succeeds
 
+        // Inject in order Cerebras, Groq, OpenRouter to verify ordered fallback respects injected order
         RoundRobinGenerativeAiResponder responder = new RoundRobinGenerativeAiResponder(client, List.of(
                 new RoundRobinGenerativeAiResponder.Provider("Cerebras", "https://cerebras.example/chat", "ck", "cm", Map.of(), false),
                 new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", "gm", Map.of(), false),
@@ -300,15 +353,32 @@ class RoundRobinGenerativeAiResponderTest {
         assertEquals("ok from fallback", reply);
     }
 
+    @Test
+    void arliAiExcludedFromMainProviderOrder() {
+        GenerativeAiConfig config = new GenerativeAiConfig(
+                "system prompt",
+                "ck", "gk", "ok",
+                "gemini-key", "mistral-key", "zai-key",
+                "cf-key", "cf-account", "ollama-key", "sn-key", "arli-test-key",
+                List.of("cm"), List.of("gm"), List.of("z-ai/glm-4.5-air:free"),
+                List.of("gem"), List.of("mist"), List.of("z"), List.of("@cf/m"), List.of("oll"), List.of("sn"), List.of("arli-model"));
+
+        List<RoundRobinGenerativeAiResponder.Provider> providers = RoundRobinGenerativeAiResponder.buildProviders(config);
+        assertFalse(providers.stream().anyMatch(p -> "ArliAI".equals(p.displayName())));
+        // Reaction responder should have it
+        List<ArliAiReactionResponder.Provider> arliProviders = ArliAiReactionResponder.buildProviders(config);
+        assertTrue(arliProviders.stream().anyMatch(p -> "ArliAI".equals(p.displayName())));
+    }
+
     private static GenerativeAiConfig config(String cerebrasKey, String groqKey, String openrouterKey,
-                                             List<String> cerebrasModels, List<String> groqModels,
-                                             List<String> openrouterModels) {
+                                              List<String> cerebrasModels, List<String> groqModels,
+                                              List<String> openrouterModels) {
         return new GenerativeAiConfig(
                 "system prompt",
                 cerebrasKey, groqKey, openrouterKey,
-                null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
                 cerebrasModels, groqModels, openrouterModels,
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
 
@@ -376,7 +446,7 @@ class RoundRobinGenerativeAiResponderTest {
         @Override
         @SuppressWarnings("unchecked")
         public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
-                                                                HttpResponse.BodyHandler<T> responseBodyHandler) {
+                                                                 HttpResponse.BodyHandler<T> responseBodyHandler) {
             uris.add(request.uri());
             bodies.add(readBody(request));
             HttpResponse<String> response = responseIndex < responseSequence.size()
@@ -387,8 +457,8 @@ class RoundRobinGenerativeAiResponderTest {
 
         @Override
         public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
-                                                                HttpResponse.BodyHandler<T> responseBodyHandler,
-                                                                HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
+                                                                 HttpResponse.BodyHandler<T> responseBodyHandler,
+                                                                 HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
             return sendAsync(request, responseBodyHandler);
         }
 

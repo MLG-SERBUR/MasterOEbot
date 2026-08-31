@@ -43,6 +43,7 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readString(data, "ai.cloudflareAccountId", defaults.cloudflareAccountId()),
                     readString(data, "ai.ollamaApiKey", defaults.ollamaApiKey()),
                     readString(data, "ai.sambaNovaApiKey", defaults.sambaNovaApiKey()),
+                    readString(data, "ai.arliApiKey", defaults.arliApiKey()),
                     readStringListWithLegacy(data, "ai.cerebrasModels", "ai.cerebrasModel", defaults.cerebrasModels()),
                     readStringListWithLegacy(data, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
                     readStringList(data, "ai.openrouterModels", defaults.openrouterModels()),
@@ -51,7 +52,8 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                     readStringList(data, "ai.zaiModels", defaults.zaiModels()),
                     readStringList(data, "ai.cloudflareModels", defaults.cloudflareModels()),
                     readStringList(data, "ai.ollamaModels", defaults.ollamaModels()),
-                    readStringList(data, "ai.sambaNovaModels", defaults.sambaNovaModels()));
+                    readStringList(data, "ai.sambaNovaModels", defaults.sambaNovaModels()),
+                    readStringList(data, "ai.arliModels", defaults.arliModels()));
 
             return new BotConfig(token, generativeAiConfig);
         }

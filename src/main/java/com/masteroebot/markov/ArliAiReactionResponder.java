@@ -7,26 +7,30 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
-public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
-    private static final int REQUEST_TIMEOUT_SECONDS = 15;
-    private static final long GROQ_TOKEN_BUDGET = 8000;
+/**
+ * Dedicated responder for reaction selection using ArliAI.
+ * Separate from main response flow: uses ArliAI only, with its own timeout and
+ * non-thinking defaults mirroring matrix-robobot's ArliAI handling.
+ * Provider/model order is fixed per config; no round-robin.
+ */
+public class ArliAiReactionResponder implements GenerativeAiResponder {
+    private static final int REACTION_TIMEOUT_SECONDS = 600;
+    private static final long GROQ_TOKEN_BUDGET = 8000; // reuse same budget for trimming if needed
     private final HttpClient client;
     private final List<Provider> providers;
     private final String systemPrompt;
 
-    public RoundRobinGenerativeAiResponder(GenerativeAiConfig config) {
+    public ArliAiReactionResponder(GenerativeAiConfig config) {
         this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt());
     }
 
-    RoundRobinGenerativeAiResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
+    ArliAiReactionResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
         this.client = client;
         this.providers = List.copyOf(providers);
         this.systemPrompt = systemPrompt;
@@ -36,25 +40,27 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return systemPrompt;
     }
 
+    public static int getTimeoutSeconds() {
+        return REACTION_TIMEOUT_SECONDS;
+    }
+
     @Override
     public CompletableFuture<String> generateReply(GenerativeAiRequest request) {
         if (providers.isEmpty()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("No generative AI providers configured"));
+            return CompletableFuture.failedFuture(new IllegalStateException("No ArliAI providers configured for reactions"));
         }
-        long deadlineMs = System.currentTimeMillis() + (REQUEST_TIMEOUT_SECONDS * 1000L);
+        long deadlineMs = System.currentTimeMillis() + (REACTION_TIMEOUT_SECONDS * 1000L);
         return attemptGenerateReply(request, deadlineMs, 0, "none", false);
     }
 
     private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean calibrationRetryDone) {
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
         if (attempts > 0 && timeRemainingMs <= 2000) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next provider"));
+            return CompletableFuture.failedFuture(new IllegalStateException("Not enough time remaining to try next ArliAI provider"));
         }
-
         if (attempts >= providers.size()) {
-            return CompletableFuture.failedFuture(new IllegalStateException("No more providers available"));
+            return CompletableFuture.failedFuture(new IllegalStateException("No more ArliAI providers available"));
         }
-
         Provider provider = providers.get(attempts);
         return attemptWithProvider(provider, request, deadlineMs, attempts, reasoningEffort, calibrationRetryDone);
     }
@@ -67,7 +73,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return fallback(request, deadlineMs, attempts + 1, e, calibrationRetryDone);
         }
 
-        System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + reasoningEffort + "...");
+        System.out.println("Starting ArliAI reaction " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + reasoningEffort + "...");
         return client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
                 .thenApply(response -> parseResponse(provider, response))
                 .exceptionallyCompose(e -> {
@@ -76,7 +82,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                         System.out.println("Reasoning is mandatory for " + provider.model() + ". Retrying same provider with 'minimal' effort...");
                         return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal", calibrationRetryDone);
                     }
-                    // Self-calibration: heuristic underestimated -> update factor and retry once with truncated history
                     String errorMsg = cause.getMessage() != null ? cause.getMessage() : cause.toString();
                     if (!calibrationRetryDone && TokenCalibrationManager.isCalibrationError(errorMsg)) {
                         String promptForCalibration = buildCalibrationPrompt(request, provider);
@@ -101,13 +106,12 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     }
 
     private CompletableFuture<String> fallback(GenerativeAiRequest request, long deadlineMs, int nextAttempts, Throwable e, boolean calibrationRetryDone) {
-        System.err.println("Provider failed: " + e.toString());
+        System.err.println("ArliAI reaction provider failed: " + e.toString());
         long timeRemainingMs = deadlineMs - System.currentTimeMillis();
-
         if (nextAttempts >= providers.size() || timeRemainingMs <= 2000) {
             return CompletableFuture.failedFuture(e);
         }
-        System.out.println("Retrying next provider...");
+        System.out.println("Retrying next ArliAI provider...");
         return attemptGenerateReply(request, deadlineMs, nextAttempts, "none", calibrationRetryDone);
     }
 
@@ -129,17 +133,13 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                                 .put("content", effectiveSystemPrompt))
                         .add(DataObject.empty()
                                 .put("role", "user")
-                                .put("content", String.join("\n", cappedMessages))));
-        if ("OpenRouter".equals(provider.displayName())) {
-            payload.put("models", DataArray.empty().add(provider.model()));
-        } else {
-            payload.put("model", provider.model());
-        }
+                                .put("content", String.join("\n", cappedMessages))))
+                .put("model", provider.model());
         if (provider.disableReasoning()) {
             payload.put("reasoning", DataObject.empty()
                     .put("effort", reasoningEffort));
         }
-        suppressGroqReasoningOutput(provider, payload, reasoningEffort);
+        applyArliAiNonThinkingDefaults(payload);
         suppressGenericReasoning(provider, payload, reasoningEffort);
 
         byte[] payloadJson = payload.toJson();
@@ -148,19 +148,18 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             List<String> preview = cappedMessages.subList(Math.max(0, cappedMessages.size() - previewCount), cappedMessages.size());
             String previewStr = String.join(" | ", preview).replace("\n", " ");
             if (previewStr.length() > 1000) previewStr = previewStr.substring(0, 1000) + "...";
-            // Log actual requested effort; payload may map none->low for gpt-oss, check payload for final value
             String loggedEffort = payload.hasKey("reasoning_effort") ? payload.getString("reasoning_effort") : payload.hasKey("reasoning") ? payload.getObject("reasoning").getString("effort", reasoningEffort) : reasoningEffort;
             if (payload.hasKey("chat_template_kwargs")) loggedEffort += "+no_think";
-            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
+            System.out.println("ArliAI Reaction Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
         } catch (Exception logEx) {
-            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
+            System.out.println("ArliAI Reaction Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
         }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(provider.url()))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + provider.apiKey())
-                .timeout(Duration.ofSeconds(REQUEST_TIMEOUT_SECONDS))
+                .timeout(Duration.ofSeconds(REACTION_TIMEOUT_SECONDS))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(payloadJson));
 
         for (Map.Entry<String, String> header : provider.extraHeaders().entrySet()) {
@@ -170,11 +169,21 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return builder.build();
     }
 
-    private static boolean isFreeOpenRouterModel(String model) {
-        return model != null && (model.equals("openrouter/free") || model.contains(":free"));
+    private void applyArliAiNonThinkingDefaults(DataObject payload) {
+        // Mirrors matrix-robobot AIService.applyArliAiNonThinkingDefaults + extraPayload output_kind delta
+        if (!payload.hasKey("temperature")) payload.put("temperature", 0.3);
+        if (!payload.hasKey("top_p")) payload.put("top_p", 0.9);
+        if (!payload.hasKey("top_k")) payload.put("top_k", 20);
+        if (!payload.hasKey("min_p")) payload.put("min_p", 0.0);
+        if (!payload.hasKey("presence_penalty")) payload.put("presence_penalty", 1.5);
+        if (!payload.hasKey("repetition_penalty")) payload.put("repetition_penalty", 1.0);
+        payload.put("reasoning_effort", "none");
+        payload.put("thinking_token_budget", 0);
+        payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
+        payload.put("output_kind", "delta");
     }
 
-    private static final Set<String> SMALL_CONTEXT_PROVIDERS = Set.of("Groq", "Cloudflare");
+    private static final java.util.Set<String> SMALL_CONTEXT_PROVIDERS = java.util.Set.of("Groq", "Cloudflare", "ArliAI");
 
     private List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
         String effectiveSystemPrompt = this.systemPrompt;
@@ -213,56 +222,29 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 
-    private void suppressGroqReasoningOutput(Provider provider, DataObject payload, String reasoningEffort) {
-        if (!"Groq".equals(provider.displayName())) {
-            return;
-        }
-
-        String model = provider.model().toLowerCase();
-        if (model.startsWith("openai/gpt-oss-")) {
-            payload.put("include_reasoning", false);
-            String effort = "none".equals(reasoningEffort) ? "low" : "medium";
-            payload.put("reasoning_effort", effort);
-        } else if (model.startsWith("qwen/qwen3-")) {
-            payload.put("reasoning_effort", reasoningEffort);
-            payload.put("reasoning_format", "hidden");
-            // ArliAI/vLLM style: Groq docs confirm reasoning_effort="none" disables for qwen3 (qwen/qwen3.6-27b supports none/default),
-            // but underlying vLLM template also respects chat_template_kwargs.enable_thinking=false (see Qwen3, Featherless, vLLM docs).
-            // Add it when we intend to disable reasoning to ensure true non-thinking mode and avoid hidden reasoning time.
-            if ("none".equals(reasoningEffort)) {
-                payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
-            }
-        }
-    }
-
     private void suppressGenericReasoning(Provider provider, DataObject payload, String reasoningEffort) {
-        if ("Groq".equals(provider.displayName()) || "OpenRouter".equals(provider.displayName())) {
+        // For ArliAI, already disabled via applyArliAiNonThinkingDefaults; keep generic disable for safety on other potential models
+        // but avoid overriding ArliAI-specific values already set.
+        if ("ArliAI".equals(provider.displayName())) {
             return;
         }
         String model = provider.model().toLowerCase();
-        // gpt-oss family cannot be fully disabled (always-on per Groq, Cerebras, SambaNova docs) -> use low (minimal)
         if (model.contains("gpt-oss")) {
             String effort = "none".equals(reasoningEffort) ? "low" : "medium";
             payload.put("reasoning_effort", effort);
             payload.put("include_reasoning", false);
             return;
         }
-        // For all other providers (Cerebras qwen, Gemini, Mistral, ZAI/GLM, Cloudflare, Ollama, SambaNova non-gpt-oss)
-        // try true disable via multiple compatible signals:
-        // - reasoning_effort=none (Groq qwen, Gemini OpenAI compat, Mistral, Cerebras, ZAI docs all support none)
-        // - reasoning_format=hidden (suppress output even if reasoning still happens)
-        // - chat_template_kwargs.enable_thinking=false (ArliAI/vLLM/Featherless/Qwen3 docs for true non-thinking mode)
         payload.put("reasoning_effort", reasoningEffort);
         payload.put("reasoning_format", "hidden");
-        payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
-        // Gemini 2.5 Flash via OpenAI compat also accepts none, but native Gemini thinkingBudget 0 is alternative;
-        // we avoid adding thinking_budget to not break other providers, reasoning_effort none is sufficient
+        if (!payload.hasKey("chat_template_kwargs")) {
+            payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
+        }
     }
-
 
     private String parseResponse(Provider provider, HttpResponse<String> response) {
         String bodyPreview = response.body() != null ? response.body().substring(0, Math.min(2000, response.body().length())) : "null";
-        System.out.println("AI Response: " + provider.displayName() + " (" + provider.model() + ") status=" + response.statusCode() + " body=" + bodyPreview.replace("\n", " "));
+        System.out.println("ArliAI Reaction Response: " + provider.displayName() + " (" + provider.model() + ") status=" + response.statusCode() + " body=" + bodyPreview.replace("\n", " "));
         if (response.statusCode() != 200) {
             String body = response.body();
             if (response.statusCode() == 400 && body.contains("Reasoning is mandatory")) {
@@ -291,143 +273,20 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
 
     static List<Provider> buildProviders(GenerativeAiConfig config) {
         List<Provider> providers = new ArrayList<>();
-        // Provider/model order mirrors matrix-robobot AIService.buildProviderAttempts order, excluding ArliAI.
-        // Matrix order: GROQ, ARLIAI, OLLAMA_PROXY, FREELLM, CEREBRAS, GEMINI, MISTRAL, CLOUDFLARE, OLLAMA_CLOUD, ZAI, SAMBANOVA, OPENROUTER
-        // MasterOEbot mapping (ArliAI excluded, OllamaProxy/FreeLLM not present):
-        // GROQ -> Groq, CEREBRAS -> Cerebras, GEMINI -> Gemini, MISTRAL -> Mistral, CLOUDFLARE -> Cloudflare,
-        // OLLAMA_CLOUD -> Ollama, ZAI -> ZAI, SAMBANOVA -> SambaNova, OPENROUTER -> OpenRouter (last, free models only)
-        if (hasText(config.groqApiKey())) {
-            List<String> ms = models(config.groqModels());
-            if (ms.isEmpty()) {
-                // skipped: no models set
-            } else {
+        if (hasText(config.arliApiKey())) {
+            List<String> ms = models(config.arliModels());
+            if (!ms.isEmpty()) {
                 for (String model : ms) {
                     providers.add(new Provider(
-                            "Groq",
-                            "https://api.groq.com/openai/v1/chat/completions",
-                            config.groqApiKey(),
+                            "ArliAI",
+                            "https://api.arliai.com/v1/chat/completions",
+                            config.arliApiKey(),
                             model,
                             Map.of(),
                             false));
                 }
             }
         }
-        if (hasText(config.cerebrasApiKey())) {
-            List<String> ms = models(config.cerebrasModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "Cerebras",
-                            "https://api.cerebras.ai/v1/chat/completions",
-                            config.cerebrasApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.geminiApiKey())) {
-            List<String> ms = models(config.geminiModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "Gemini",
-                            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-                            config.geminiApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.mistralApiKey())) {
-            List<String> ms = models(config.mistralModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "Mistral",
-                            "https://api.mistral.ai/v1/chat/completions",
-                            config.mistralApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.cloudflareApiKey()) && hasText(config.cloudflareAccountId())) {
-            List<String> ms = models(config.cloudflareModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "Cloudflare",
-                            "https://api.cloudflare.com/client/v4/accounts/" + config.cloudflareAccountId()
-                                    + "/ai/v1/chat/completions",
-                            config.cloudflareApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.ollamaApiKey())) {
-            List<String> ms = models(config.ollamaModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "Ollama",
-                            "https://ollama.com/v1/chat/completions",
-                            config.ollamaApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.zaiApiKey())) {
-            List<String> ms = models(config.zaiModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "ZAI",
-                            "https://api.z.ai/api/paas/v4/chat/completions",
-                            config.zaiApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.sambaNovaApiKey())) {
-            List<String> ms = models(config.sambaNovaModels());
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "SambaNova",
-                            "https://api.sambanova.ai/v1/chat/completions",
-                            config.sambaNovaApiKey(),
-                            model,
-                            Map.of(),
-                            false));
-                }
-            }
-        }
-        if (hasText(config.openrouterApiKey())) {
-            List<String> ms = models(config.openrouterModels()).stream().filter(RoundRobinGenerativeAiResponder::isFreeOpenRouterModel).toList();
-            if (!ms.isEmpty()) {
-                for (String model : ms) {
-                    providers.add(new Provider(
-                            "OpenRouter",
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            config.openrouterApiKey(),
-                            model,
-                            Map.of(
-                                    "HTTP-Referer", "https://github.com/MLG-SERBUR/MasterOEbot",
-                                    "X-Title", "MasterOEbot"),
-                            true));
-                }
-            }
-        }
-        // Note: ArliAI intentionally excluded from main response flow; see ArliAiReactionResponder for reaction use.
         return providers;
     }
 
@@ -440,7 +299,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return List.of();
         }
         return models.stream()
-                .filter(RoundRobinGenerativeAiResponder::hasText)
+                .filter(ArliAiReactionResponder::hasText)
                 .toList();
     }
 

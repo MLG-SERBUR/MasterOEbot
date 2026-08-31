@@ -14,6 +14,7 @@ public record GenerativeAiConfig(
         String cloudflareAccountId,
         String ollamaApiKey,
         String sambaNovaApiKey,
+        String arliApiKey,
         List<String> cerebrasModels,
         List<String> groqModels,
         List<String> openrouterModels,
@@ -22,7 +23,8 @@ public record GenerativeAiConfig(
         List<String> zaiModels,
         List<String> cloudflareModels,
         List<String> ollamaModels,
-        List<String> sambaNovaModels
+        List<String> sambaNovaModels,
+        List<String> arliModels
 ) {
     public static final String DEFAULT_SYSTEM_PROMPT = """
             You are replying in a Discord channel.
@@ -46,6 +48,7 @@ public record GenerativeAiConfig(
                 System.getenv("CLOUDFLARE_ACCOUNT_ID"),
                 System.getenv("OLLAMA_API_KEY"),
                 System.getenv("SAMBANOVA_API_KEY"),
+                firstNonBlank(System.getenv("ARLI_API_KEY"), System.getenv("ARLIAI_API_KEY")),
                 List.of("qwen-3-235b-a22b-instruct-2507"),
                 List.of("meta-llama/llama-4-scout-17b-16e-instruct"),
                 List.of("openrouter/free"),
@@ -56,6 +59,11 @@ public record GenerativeAiConfig(
                 List.of("glm-4.7-flash", "glm-4.5-flash"),
                 List.of("@cf/openai/gpt-oss-120b"),
                 List.of("minimax-m3", "nemotron-3-ultra", "gpt-oss:120b", "gemma4:31b"),
-                List.of("DeepSeek-V3.1", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"));
+                List.of("DeepSeek-V3.1", "gpt-oss-120b", "Meta-Llama-3.3-70B-Instruct"),
+                List.of("Qwen3.5-27B-Derestricted"));
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 }

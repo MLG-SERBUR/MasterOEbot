@@ -7,6 +7,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.security.auth.login.LoginException;
 
+import com.masteroebot.markov.ArliAiReactionResponder;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
@@ -48,13 +49,15 @@ public class BotMain {
 
         RoundRobinGenerativeAiResponder generativeAiResponder =
                 new RoundRobinGenerativeAiResponder(config.generativeAiConfig());
+        ArliAiReactionResponder reactionResponder =
+                new ArliAiReactionResponder(config.generativeAiConfig());
         System.out.println("Loaded system prompt: " + config.generativeAiConfig().systemPrompt());
 
-        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder);
+        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder);
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
 
         if (boot == null) {
-            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder);
+            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder, reactionResponder);
             markovAvailable = false;
         }
 
@@ -76,7 +79,8 @@ public class BotMain {
 
     private static BootResult startBot(String token, boolean enableMessageContent,
                                        MarkovManager markovManager, MarkovConfig markovConfig,
-                                       RoundRobinGenerativeAiResponder generativeAiResponder)
+                                       RoundRobinGenerativeAiResponder generativeAiResponder,
+                                       ArliAiReactionResponder reactionResponder)
             throws LoginException, InterruptedException {
         Connect4CommandListener listener =
                 new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
@@ -84,7 +88,7 @@ public class BotMain {
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
-            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder);
+            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder);
         }
 
         StartupProbe probe = new StartupProbe();
