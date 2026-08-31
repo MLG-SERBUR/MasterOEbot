@@ -17,7 +17,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
-    private static final int REQUEST_TIMEOUT_SECONDS = 20;
+    private static final int REQUEST_TIMEOUT_SECONDS = 15;
     private static final long GROQ_TOKEN_BUDGET = 8000;
     private final HttpClient client;
     private final List<Provider> regularProviders;
@@ -85,7 +85,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             return fallback(request, deadlineMs, attempts + 1, e, usingFallback, calibrationRetryDone);
         }
 
-        System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + (provider.disableReasoning() ? reasoningEffort : "default") + "...");
+        System.out.println("Starting " + provider.displayName() + " (" + provider.model() + ") request with reasoning effort: " + reasoningEffort + "...");
         return client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
                 .thenApply(response -> parseResponse(provider, response))
                 .exceptionallyCompose(e -> {
@@ -168,6 +168,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                     .put("effort", reasoningEffort));
         }
         suppressGroqReasoningOutput(provider, payload, reasoningEffort);
+        suppressGenericReasoning(provider, payload, reasoningEffort);
 
         byte[] payloadJson = payload.toJson();
         try {
@@ -175,7 +176,10 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             List<String> preview = cappedMessages.subList(Math.max(0, cappedMessages.size() - previewCount), cappedMessages.size());
             String previewStr = String.join(" | ", preview).replace("\n", " ");
             if (previewStr.length() > 1000) previewStr = previewStr.substring(0, 1000) + "...";
-            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + (provider.disableReasoning() ? reasoningEffort : "default") + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
+            // Log actual requested effort; payload may map none->low for gpt-oss, check payload for final value
+            String loggedEffort = payload.hasKey("reasoning_effort") ? payload.getString("reasoning_effort") : payload.hasKey("reasoning") ? payload.getObject("reasoning").getString("effort", reasoningEffort) : reasoningEffort;
+            if (payload.hasKey("chat_template_kwargs")) loggedEffort += "+no_think";
+            System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
         } catch (Exception logEx) {
             System.out.println("AI Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
         }
@@ -257,6 +261,30 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
                 payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
             }
         }
+    }
+
+    private void suppressGenericReasoning(Provider provider, DataObject payload, String reasoningEffort) {
+        if ("Groq".equals(provider.displayName()) || "OpenRouter".equals(provider.displayName())) {
+            return;
+        }
+        String model = provider.model().toLowerCase();
+        // gpt-oss family cannot be fully disabled (always-on per Groq, Cerebras, SambaNova docs) -> use low (minimal)
+        if (model.contains("gpt-oss")) {
+            String effort = "none".equals(reasoningEffort) ? "low" : "medium";
+            payload.put("reasoning_effort", effort);
+            payload.put("include_reasoning", false);
+            return;
+        }
+        // For all other providers (Cerebras qwen, Gemini, Mistral, ZAI/GLM, Cloudflare, Ollama, SambaNova non-gpt-oss)
+        // try true disable via multiple compatible signals:
+        // - reasoning_effort=none (Groq qwen, Gemini OpenAI compat, Mistral, Cerebras, ZAI docs all support none)
+        // - reasoning_format=hidden (suppress output even if reasoning still happens)
+        // - chat_template_kwargs.enable_thinking=false (ArliAI/vLLM/Featherless/Qwen3 docs for true non-thinking mode)
+        payload.put("reasoning_effort", reasoningEffort);
+        payload.put("reasoning_format", "hidden");
+        payload.put("chat_template_kwargs", DataObject.empty().put("enable_thinking", false));
+        // Gemini 2.5 Flash via OpenAI compat also accepts none, but native Gemini thinkingBudget 0 is alternative;
+        // we avoid adding thinking_budget to not break other providers, reasoning_effort none is sufficient
     }
 
 
