@@ -25,15 +25,25 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
     private final HttpClient client;
     private final List<Provider> providers;
     private final String systemPrompt;
+    private final ArliAiCoordinator coordinator;
 
     public ArliAiReactionResponder(GenerativeAiConfig config) {
-        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt());
+        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt(), null);
     }
 
-    ArliAiReactionResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
+    public ArliAiReactionResponder(GenerativeAiConfig config, ArliAiCoordinator coordinator) {
+        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt(), coordinator);
+    }
+
+    public ArliAiReactionResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
+        this(client, providers, systemPrompt, null);
+    }
+
+    public ArliAiReactionResponder(HttpClient client, List<Provider> providers, String systemPrompt, ArliAiCoordinator coordinator) {
         this.client = client;
         this.providers = List.copyOf(providers);
         this.systemPrompt = systemPrompt;
+        this.coordinator = coordinator;
     }
 
     public String getSystemPrompt() {
@@ -49,8 +59,24 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
         if (providers.isEmpty()) {
             return CompletableFuture.failedFuture(new IllegalStateException("No ArliAI providers configured for reactions"));
         }
+        // If second chance is currently awaiting ArliAI, wait and retry after it completes
+        if (coordinator != null && coordinator.isSecondChanceActive()) {
+            System.out.println("ArliAI reaction waiting for second chance to complete before proceeding...");
+            return coordinator.awaitSecondChance().thenCompose(v -> {
+                System.out.println("ArliAI reaction retrying after second chance completed");
+                return generateReply(request);
+            });
+        }
+        if (coordinator != null) {
+            // Try to mark reaction as active; if already active, proceed anyway (should not happen)
+            coordinator.tryStartReaction();
+        }
         long deadlineMs = System.currentTimeMillis() + (REACTION_TIMEOUT_SECONDS * 1000L);
-        return attemptGenerateReply(request, deadlineMs, 0, "none", false);
+        CompletableFuture<String> result = attemptGenerateReply(request, deadlineMs, 0, "none", false);
+        if (coordinator != null) {
+            result.whenComplete((r, e) -> coordinator.finishReaction());
+        }
+        return result;
     }
 
     private CompletableFuture<String> attemptGenerateReply(GenerativeAiRequest request, long deadlineMs, int attempts, String reasoningEffort, boolean calibrationRetryDone) {
@@ -82,25 +108,7 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
                         System.out.println("Reasoning is mandatory for " + provider.model() + ". Retrying same provider with 'minimal' effort...");
                         return attemptWithProvider(provider, request, deadlineMs, attempts, "minimal", calibrationRetryDone);
                     }
-                    String errorMsg = cause.getMessage() != null ? cause.getMessage() : cause.toString();
-                    if (!calibrationRetryDone && TokenCalibrationManager.isCalibrationError(errorMsg)) {
-                        String promptForCalibration = buildCalibrationPrompt(request, provider);
-                        TokenCalibrationManager.getInstance().recordFromError(promptForCalibration, errorMsg);
-                        Integer actual = TokenCalibrationManager.extractActualTokensForCalibration(errorMsg);
-                        Integer limit = TokenCalibrationManager.extractLimitForCalibration(errorMsg);
-                        if (actual != null && limit != null && request.recentMessages() != null && request.recentMessages().size() > 10) {
-                            double targetRatio = limit * 0.85 / (double) actual;
-                            targetRatio = Math.max(0.3, Math.min(0.85, targetRatio));
-                            int newSize = Math.max(10, (int) (request.recentMessages().size() * targetRatio));
-                            if (newSize < request.recentMessages().size()) {
-                                java.util.List<String> truncated = new java.util.ArrayList<>(request.recentMessages().subList(request.recentMessages().size() - newSize, request.recentMessages().size()));
-                                GenerativeAiRequest truncatedRequest = new GenerativeAiRequest(truncated, request.systemPromptOverride());
-                                String calMsg = "Context exceeded (" + actual + "/" + limit + "). Calibrated factor to " + String.format("%.2f", TokenCalibrationManager.getInstance().getFactor()) + " and retrying with " + newSize + " messages (" + (int) (targetRatio * 100) + "%)...";
-                                System.out.println(calMsg);
-                                return attemptWithProvider(provider, truncatedRequest, deadlineMs, attempts, reasoningEffort, true);
-                            }
-                        }
-                    }
+                    // No calibration/truncation for reactions: payload is candidate list, not chat log. If context exceeded, just drop.
                     return fallback(request, deadlineMs, attempts + 1, e, calibrationRetryDone);
                 });
     }
@@ -113,13 +121,6 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
         }
         System.out.println("Retrying next ArliAI provider...");
         return attemptGenerateReply(request, deadlineMs, nextAttempts, "none", calibrationRetryDone);
-    }
-
-    private String buildCalibrationPrompt(GenerativeAiRequest request, Provider provider) {
-        String sys = request.systemPromptOverride() != null ? request.systemPromptOverride() : systemPrompt;
-        java.util.List<String> capped = capForSmallContextProvider(provider, request.recentMessages(), sys);
-        String joined = capped == null ? "" : String.join("\n", capped);
-        return (sys != null ? sys : "") + "\n" + joined;
     }
 
     private HttpRequest buildRequest(Provider provider, GenerativeAiRequest request, String reasoningEffort) {
@@ -303,7 +304,7 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
                 .toList();
     }
 
-    record Provider(String displayName, String url, String apiKey, String model,
+    public record Provider(String displayName, String url, String apiKey, String model,
                     Map<String, String> extraHeaders, boolean disableReasoning) {
     }
 

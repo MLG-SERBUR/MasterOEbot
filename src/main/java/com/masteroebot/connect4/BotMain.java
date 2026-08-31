@@ -7,7 +7,9 @@ import java.util.concurrent.TimeUnit;
 
 import javax.security.auth.login.LoginException;
 
+import com.masteroebot.markov.ArliAiCoordinator;
 import com.masteroebot.markov.ArliAiReactionResponder;
+import com.masteroebot.markov.ArliAiSecondChanceResponder;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
@@ -49,15 +51,18 @@ public class BotMain {
 
         RoundRobinGenerativeAiResponder generativeAiResponder =
                 new RoundRobinGenerativeAiResponder(config.generativeAiConfig());
+        ArliAiCoordinator coordinator = new ArliAiCoordinator();
         ArliAiReactionResponder reactionResponder =
-                new ArliAiReactionResponder(config.generativeAiConfig());
+                new ArliAiReactionResponder(config.generativeAiConfig(), coordinator);
+        ArliAiSecondChanceResponder secondChanceResponder =
+                new ArliAiSecondChanceResponder(config.generativeAiConfig(), coordinator);
         System.out.println("Loaded system prompt: " + config.generativeAiConfig().systemPrompt());
 
-        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder);
+        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
 
         if (boot == null) {
-            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder, reactionResponder);
+            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
             markovAvailable = false;
         }
 
@@ -80,7 +85,9 @@ public class BotMain {
     private static BootResult startBot(String token, boolean enableMessageContent,
                                        MarkovManager markovManager, MarkovConfig markovConfig,
                                        RoundRobinGenerativeAiResponder generativeAiResponder,
-                                       ArliAiReactionResponder reactionResponder)
+                                       ArliAiReactionResponder reactionResponder,
+                                       ArliAiSecondChanceResponder secondChanceResponder,
+                                       ArliAiCoordinator coordinator)
             throws LoginException, InterruptedException {
         Connect4CommandListener listener =
                 new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
@@ -88,7 +95,7 @@ public class BotMain {
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
-            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder);
+            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
         }
 
         StartupProbe probe = new StartupProbe();

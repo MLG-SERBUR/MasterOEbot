@@ -31,6 +31,8 @@ public class MarkovListener extends ListenerAdapter {
     private final MarkovConfig config;
     private final GenerativeAiResponder generativeAiResponder;
     private final GenerativeAiResponder reactionResponder;
+    private final GenerativeAiResponder secondChanceResponder;
+    private final ArliAiCoordinator coordinator;
     private JDA jda;
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -60,19 +62,25 @@ public class MarkovListener extends ListenerAdapter {
             """;
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda) {
-        this(manager, config, jda, new PlaceholderGenerativeAiResponder(), new PlaceholderGenerativeAiResponder());
+        this(manager, config, jda, new PlaceholderGenerativeAiResponder(), new PlaceholderGenerativeAiResponder(), new PlaceholderGenerativeAiResponder(), null);
     }
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder) {
-        this(manager, config, jda, generativeAiResponder, new PlaceholderGenerativeAiResponder());
+        this(manager, config, jda, generativeAiResponder, new PlaceholderGenerativeAiResponder(), new PlaceholderGenerativeAiResponder(), null);
     }
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder) {
+        this(manager, config, jda, generativeAiResponder, reactionResponder, new PlaceholderGenerativeAiResponder(), null);
+    }
+
+    public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator) {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
         this.generativeAiResponder = generativeAiResponder;
         this.reactionResponder = reactionResponder;
+        this.secondChanceResponder = secondChanceResponder;
+        this.coordinator = coordinator;
         this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
         startStartupTimers();
     }
@@ -446,6 +454,16 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void evaluatePendingReactions(long channelId) {
+        // If second chance is currently awaiting ArliAI, wait and retry after it completes
+        // Keep pending messages queued (do not drain yet) and retry promptly after second chance
+        if (coordinator != null && coordinator.isSecondChanceActive()) {
+            System.out.println("Reaction evaluation for channel " + channelId + " waiting for second chance to complete before calling ArliAI");
+            coordinator.awaitSecondChance().thenRun(() -> {
+                // Retry evaluation after second chance (immediate, not debounced)
+                scheduler.schedule(() -> evaluatePendingReactions(channelId), 100, TimeUnit.MILLISECONDS);
+            });
+            return;
+        }
         List<PendingReactionMessage> pendingMessages = drainPendingReactionMessages(channelId);
         if (pendingMessages.isEmpty()) return;
         // No limit: consider all pending; sort newest-first (higher snowflake = newer)
@@ -485,10 +503,23 @@ public class MarkovListener extends ListenerAdapter {
         }
 
         long reactionTimeout = (responderToUse instanceof ArliAiReactionResponder) ? ArliAiReactionResponder.getTimeoutSeconds() : REACTION_AI_TIMEOUT_SECONDS;
+        // Keep copy for retry
+        List<PendingReactionMessage> pendingForRetry = new ArrayList<>(pendingMessages);
         reactionFuture.orTimeout(reactionTimeout, TimeUnit.SECONDS)
                 .whenComplete((reply, error) -> {
                     if (error != null) {
                         logGenerativeAiFailure(channelId, error);
+                        Throwable unwrapped = unwrapCompletionException(error);
+                        String errMsg = unwrapped.getMessage() != null ? unwrapped.getMessage() : unwrapped.toString();
+                        // retry later except for context exceeded
+                        if (TokenCalibrationManager.isContextLengthError(errMsg)) {
+                            System.out.println("Not retrying reaction for channel " + channelId + " due to context exceeded error");
+                            return;
+                        }
+                        System.out.println("Scheduling retry for reaction in channel " + channelId + " after failure: " + errMsg);
+                        requeuePendingReactionMessages(channelId, pendingForRetry);
+                        long retryDelaySeconds = 60 + rand.nextInt(60);
+                        scheduler.schedule(() -> evaluatePendingReactions(channelId), retryDelaySeconds, TimeUnit.SECONDS);
                         return;
                     }
 
@@ -533,6 +564,21 @@ public class MarkovListener extends ListenerAdapter {
         }
     }
 
+    private void requeuePendingReactionMessages(long channelId, List<PendingReactionMessage> toRequeue) {
+        if (toRequeue == null || toRequeue.isEmpty()) return;
+        synchronized (pendingReactionMessagesByChannel) {
+            LinkedHashMap<Long, PendingReactionMessage> pending =
+                    pendingReactionMessagesByChannel.computeIfAbsent(channelId, id -> new LinkedHashMap<>());
+            for (PendingReactionMessage msg : toRequeue) {
+                PendingReactionMessage existing = pending.computeIfAbsent(msg.messageId,
+                        id -> new PendingReactionMessage(msg.channel, msg.messageId, msg.content));
+                for (Map.Entry<String, PendingReaction> e : msg.reactions.entrySet()) {
+                    existing.reactions.putIfAbsent(e.getKey(), e.getValue());
+                }
+            }
+        }
+    }
+
     private String sanitizeReactionPromptText(String text) {
         return text.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
@@ -568,21 +614,114 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void scheduleSecondReply(MessageReceivedEvent event, long channelId, String content) {
-        if (rand.nextDouble() < 0.1) {
-            String replyText = generateReplyWithSeed(channelId, content, 0.5);
-            String secondReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(replyText)));
-            if (!secondReply.isEmpty()) {
-                int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
-                final List<ScheduledFuture<?>> typingTasks = startTyping(event, delaySeconds);
-                scheduler.schedule(() -> {
-                    event.getChannel().sendMessage(secondReply)
-                            .setAllowedMentions(Collections.emptyList())
-                            .queue(success -> {
-                                stopTyping(typingTasks);
-                                channelsNeedingScrub.add(channelId);
-                            }, error -> stopTyping(typingTasks));
-                }, delaySeconds, TimeUnit.SECONDS);
+        if (rand.nextDouble() >= 0.1) {
+            return;
+        }
+        // Try ArliAI second chance path if available (not placeholder)
+        boolean hasSecondChance = secondChanceResponder != null && !(secondChanceResponder instanceof PlaceholderGenerativeAiResponder);
+        if (hasSecondChance) {
+            // Only start if reaction service isn't currently awaiting ArliAI
+            if (coordinator != null && coordinator.isReactionActive()) {
+                System.out.println("Skipping second chance reply in channel " + channelId + " - reaction service is active (awaiting ArliAI)");
+                return;
             }
+            // Determine system prompt for token budgeting (copy same system prompt for now)
+            String systemPrompt = null;
+            if (secondChanceResponder instanceof ArliAiSecondChanceResponder sc) {
+                systemPrompt = sc.getSystemPrompt();
+            } else if (generativeAiResponder instanceof RoundRobinGenerativeAiResponder rr) {
+                systemPrompt = rr.getSystemPrompt();
+            } else if (secondChanceResponder instanceof ArliAiReactionResponder ar) {
+                systemPrompt = ar.getSystemPrompt();
+            }
+            // Include as part of logs the first AI's response: fetch latest AI log at invocation time
+            List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET, systemPrompt);
+            String latest = recentMessages.isEmpty() ? "none" : recentMessages.get(recentMessages.size() - 1);
+            System.out.println("Second chance ArliAI request for channel " + channelId + " with " + recentMessages.size() + " messages, latest at invocation: " + latest.substring(0, Math.min(500, latest.length())).replace("\n", " "));
+            GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
+            int timeoutSeconds = (secondChanceResponder instanceof ArliAiSecondChanceResponder) ? ArliAiSecondChanceResponder.getTimeoutSeconds() : (int) GENERATIVE_AI_TIMEOUT_SECONDS;
+            // For second chance we use 600s timeout; start typing for that duration
+            List<ScheduledFuture<?>> typingTasks = startTyping(event, timeoutSeconds);
+            CompletableFuture<String> future;
+            try {
+                future = secondChanceResponder.generateReply(request);
+            } catch (Exception e) {
+                stopTyping(typingTasks);
+                System.err.println("Second chance generateReply threw for channel " + channelId + ": " + e);
+                e.printStackTrace(System.err);
+                return;
+            }
+            if (future == null) {
+                stopTyping(typingTasks);
+                System.err.println("Second chance responder returned null future for channel " + channelId);
+                return;
+            }
+            future.orTimeout(timeoutSeconds, TimeUnit.SECONDS).whenComplete((reply, error) -> {
+                stopTyping(typingTasks);
+                if (error != null) {
+                    Throwable unwrapped = unwrapCompletionException(error);
+                    // If skipped due to reaction active, already logged
+                    if (unwrapped.getMessage() != null && unwrapped.getMessage().contains("Reaction service is currently awaiting")) {
+                        System.out.println("Second chance skipped in channel " + channelId + ": " + unwrapped.getMessage());
+                        return;
+                    }
+                    System.err.println("Second chance ArliAI failed for channel " + channelId + ": " + unwrapped);
+                    unwrapped.printStackTrace(System.err);
+                    // 10% chance Markov fallback on ArliAI failure
+                    if (rand.nextDouble() < 0.1) {
+                        System.out.println("Second chance ArliAI failed, attempting 10% Markov fallback for channel " + channelId);
+                        String fallbackText = generateReplyWithSeed(channelId, content, 0.5);
+                        String fallbackReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(fallbackText)));
+                        if (!fallbackReply.isEmpty()) {
+                            int delaySeconds = calculateDelay(fallbackReply) + 2 + rand.nextInt(5);
+                            List<ScheduledFuture<?>> fallbackTyping = startTyping(event, delaySeconds);
+                            scheduler.schedule(() -> {
+                                event.getChannel().sendMessage(fallbackReply)
+                                        .setAllowedMentions(Collections.emptyList())
+                                        .queue(success -> {
+                                            stopTyping(fallbackTyping);
+                                            channelsNeedingScrub.add(channelId);
+                                        }, err -> stopTyping(fallbackTyping));
+                            }, delaySeconds, TimeUnit.SECONDS);
+                        }
+                    }
+                    return;
+                }
+                String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(reply.trim())));
+                if (safeReply.trim().isEmpty()) {
+                    System.err.println("Second chance ArliAI returned empty reply for channel " + channelId);
+                    return;
+                }
+                int delaySeconds = calculateDelay(safeReply);
+                Runnable send = () -> event.getChannel().sendMessage(safeReply)
+                        .setAllowedMentions(Collections.emptyList())
+                        .queue(success -> {
+                            trackAiMessage(channelId, safeReply);
+                        }, err -> {
+                            System.err.println("Failed to send second chance reply in channel " + channelId + ": " + err);
+                        });
+                if (delaySeconds > 0) {
+                    scheduler.schedule(send, delaySeconds, TimeUnit.SECONDS);
+                } else {
+                    send.run();
+                }
+            });
+            return;
+        }
+        // Legacy Markov fallback (used in tests or when no second chance responder)
+        String replyText = generateReplyWithSeed(channelId, content, 0.5);
+        String secondReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(replyText)));
+        if (!secondReply.isEmpty()) {
+            int delaySeconds = calculateDelay(secondReply) + 2 + rand.nextInt(5);
+            final List<ScheduledFuture<?>> typingTasks = startTyping(event, delaySeconds);
+            scheduler.schedule(() -> {
+                event.getChannel().sendMessage(secondReply)
+                        .setAllowedMentions(Collections.emptyList())
+                        .queue(success -> {
+                            stopTyping(typingTasks);
+                            channelsNeedingScrub.add(channelId);
+                        }, error -> stopTyping(typingTasks));
+            }, delaySeconds, TimeUnit.SECONDS);
         }
     }
 
