@@ -262,7 +262,7 @@ public class MarkovListener extends ListenerAdapter {
         if (!config.isEnabled(channelId)) return;
         if (jda != null && event.getUserIdLong() == jda.getSelfUser().getIdLong()) return;
 
-        event.retrieveMessage().queue(message -> rememberPendingReactionMessage(channelId, message), error -> {
+        event.retrieveMessage().queue(message -> rememberPendingReactionMessage(channelId, message, event.getEmoji()), error -> {
         });
     }
 
@@ -408,16 +408,36 @@ public class MarkovListener extends ListenerAdapter {
                 });
     }
 
-    private void rememberPendingReactionMessage(long channelId, Message message) {
-        if (message == null || isMessageFromSelf(message) || message.getAuthor().isBot()) return;
+    private final Set<String> seenReactionCandidates = ConcurrentHashMap.newKeySet();
+
+    private void rememberPendingReactionMessage(long channelId, Message message, Emoji newEmoji) {
+        if (message == null || message.getAuthor() == null || newEmoji == null) return;
 
         String content = message.getContentDisplay();
         if (content == null || content.trim().isEmpty() || content.trim().startsWith("!")) return;
 
-        List<MessageReaction> reactions = message.getReactions().stream()
-                .filter(reaction -> !reaction.isSelf())
-                .toList();
-        if (reactions.isEmpty()) return;
+        String reactionCode;
+        String display;
+        try {
+            reactionCode = newEmoji.getAsReactionCode();
+            display = newEmoji.getFormatted();
+        } catch (Exception e) {
+            return;
+        }
+        if (reactionCode == null || reactionCode.isEmpty()) return;
+
+        // Skip emojis the bot already added; nothing to mirror for those.
+        try {
+            for (MessageReaction reaction : message.getReactions()) {
+                if (reaction.isSelf() && reactionCode.equals(reaction.getEmoji().getAsReactionCode())) {
+                    return;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        // Only new emoji reactions are queued; already-considered ones are skipped.
+        if (!seenReactionCandidates.add(message.getIdLong() + ":" + reactionCode)) return;
 
         synchronized (pendingReactionMessagesByChannel) {
             LinkedHashMap<Long, PendingReactionMessage> pendingMessages =
@@ -425,12 +445,9 @@ public class MarkovListener extends ListenerAdapter {
             PendingReactionMessage pendingMessage = pendingMessages.computeIfAbsent(
                     message.getIdLong(),
                     id -> new PendingReactionMessage(message.getChannel(), message.getIdLong(), content));
-            for (MessageReaction reaction : reactions) {
-                Emoji emoji = reaction.getEmoji();
-                pendingMessage.reactions.putIfAbsent(
-                        emoji.getAsReactionCode(),
-                        new PendingReaction(emoji.getFormatted(), emoji));
-            }
+            pendingMessage.reactions.putIfAbsent(
+                    reactionCode,
+                    new PendingReaction(display, newEmoji));
         }
         scheduleDebouncedReactionEvaluation(channelId);
     }
