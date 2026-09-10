@@ -392,7 +392,7 @@ public class MarkovListener extends ListenerAdapter {
 
 
 
-                    String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(reply.trim())));
+                    String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(MarkovManager.stripBotPrefix(reply))));
                     if (safeReply.trim().isEmpty()) {
                         logGenerativeAiFailure(channelId, new IllegalStateException("Generative AI responder returned empty reply"));
                         sendImmediateSeededMarkovReply(event, channelId, content);
@@ -705,7 +705,7 @@ public class MarkovListener extends ListenerAdapter {
                     }
                     return;
                 }
-                String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(reply.trim())));
+                String safeReply = escapeMassMentions(resolveGuildEmoji(event.getGuild(), sanitizeOutput(MarkovManager.stripBotPrefix(reply))));
                 if (safeReply.trim().isEmpty()) {
                     System.err.println("Second chance ArliAI returned empty reply for channel " + channelId);
                     return;

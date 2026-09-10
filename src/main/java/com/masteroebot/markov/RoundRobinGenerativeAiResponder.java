@@ -282,7 +282,7 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             if (text == null || text.trim().isEmpty()) {
                 throw new IllegalStateException("No response from " + provider.displayName() + " (" + provider.model() + ").");
             }
-            return text;
+            return MarkovManager.stripBotPrefix(text);
         } catch (Exception e) {
             throw new IllegalStateException("Unexpected response from " + provider.displayName() + " ("
                     + provider.model() + "). Body: " + response.body(), e);

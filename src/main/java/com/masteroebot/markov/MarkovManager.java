@@ -7,6 +7,7 @@ import java.util.*;
 public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
     public static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
+    private static final String BOT_MESSAGE_TAG = BOT_MESSAGE_PREFIX.trim();
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
@@ -116,9 +117,24 @@ public class MarkovManager {
 
     public synchronized void appendBotMessageToAiLog(long channelId, String message) {
         if (message == null || message.trim().isEmpty()) return;
-        String trimmed = message.trim();
+        String trimmed = stripBotPrefix(message.trim());
+        if (trimmed.isEmpty()) return;
         if (ProfanityFilter.containsProfanity(trimmed)) return;
         appendLine(channelId, BOT_MESSAGE_PREFIX + trimmed, getAiLogPath(channelId), "AI log");
+    }
+
+    /**
+     * Strips leading {@code <MasterOEBot>} tags the AI sometimes prepends to
+     * its reply. Loops to handle repeated prefixes and tolerates leading
+     * whitespace and a missing trailing space.
+     */
+    public static String stripBotPrefix(String text) {
+        if (text == null) return "";
+        String stripped = text.stripLeading();
+        while (stripped.startsWith(BOT_MESSAGE_TAG)) {
+            stripped = stripped.substring(BOT_MESSAGE_TAG.length()).stripLeading();
+        }
+        return stripped;
     }
 
     public synchronized void ensureAiLogInitialized(long channelId) {
