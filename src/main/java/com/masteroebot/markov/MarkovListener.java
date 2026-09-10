@@ -195,7 +195,8 @@ public class MarkovListener extends ListenerAdapter {
         String lowerContent = content.toLowerCase();
 
         boolean isReplyToSelfSync = isReplyToSelf(message);
-        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelfSync;
+        boolean mentionsEveryone = isMassMention(message, content);
+        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelfSync || mentionsEveryone;
 
         if (directlyAddressed) {
             firstInvocationTimeByChannel.putIfAbsent(channelId, System.currentTimeMillis());
@@ -204,7 +205,7 @@ public class MarkovListener extends ListenerAdapter {
 
         if (responseAllowed) {
             if (directlyAddressed) {
-                System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName));
+                System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName) + " mentionsEveryone=" + mentionsEveryone);
                 sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
                 return;
             } else if (rand.nextDouble() < 0.001) {
@@ -217,7 +218,7 @@ public class MarkovListener extends ListenerAdapter {
             }
         } else {
             if (directlyAddressed) {
-                System.out.println("Ignored directlyAddressed message in channel " + channelId + " due to dampening: content='" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName));
+                System.out.println("Ignored directlyAddressed message in channel " + channelId + " due to dampening: content='" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName) + " mentionsEveryone=" + mentionsEveryone);
             }
         }
 
@@ -794,6 +795,33 @@ public class MarkovListener extends ListenerAdapter {
                 && jda != null
                 && jda.getSelfUser() != null
                 && message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong();
+    }
+
+    private boolean isMassMention(Message message, String resolvedContent) {
+        if (message == null) return false;
+        try {
+            if (message.getMentions() != null && message.getMentions().mentionsEveryone()) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            String raw = message.getContentRaw();
+            if (raw != null) {
+                String lowerRaw = raw.toLowerCase(Locale.ROOT);
+                if (lowerRaw.contains("@everyone") || lowerRaw.contains("@here")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (resolvedContent != null) {
+            String lowerResolved = resolvedContent.toLowerCase(Locale.ROOT);
+            if (lowerResolved.contains("@everyone") || lowerResolved.contains("@here")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String generateReplyWithSeed(long channelId, String originalMessage, double seedChance) {
