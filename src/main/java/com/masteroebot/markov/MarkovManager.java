@@ -217,6 +217,23 @@ public class MarkovManager {
     }
 
     public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget, String systemPrompt) {
+        return getRecentMessagesForAiUntilTokenBudget(channelId, tokenBudget, systemPrompt, (String) null);
+    }
+
+    /**
+     * Variant that estimates with a representative model (per-family calibration), so the
+     * gathered history fits a specific tokenizer family. Null model = default estimate.
+     */
+    public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget, String systemPrompt, String estimateModel) {
+        return getRecentMessagesForAiUntilTokenBudget(channelId, tokenBudget, systemPrompt, estimateModel, null);
+    }
+
+    /**
+     * Conservative variant across candidate models (max calibrated estimate),
+     * so gathered history fits the most restrictive tokenizer family.
+     * When {@code estimateModels} is null/empty, falls back to {@code estimateModel}.
+     */
+    public synchronized List<String> getRecentMessagesForAiUntilTokenBudget(long channelId, long tokenBudget, String systemPrompt, String estimateModel, java.util.Collection<String> estimateModels) {
         if (tokenBudget <= 0) {
             return Collections.emptyList();
         }
@@ -243,24 +260,35 @@ public class MarkovManager {
             return lines;
         }
 
-        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n") : 0;
-        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n"); // role overhead
+        long systemTokens = estimateForGather(systemPrompt != null ? systemPrompt + "\n" : null, estimateModel, estimateModels);
+        long overheadTokens = estimateForGather("system\nuser\n", estimateModel, estimateModels); // role overhead
         long effectiveBudget = tokenBudget - systemTokens - overheadTokens;
         if (effectiveBudget < 500) effectiveBudget = tokenBudget - systemTokens; // fallback if overhead too large
         if (effectiveBudget <= 0) effectiveBudget = tokenBudget;
 
         int start = lines.size() - 1;
-        long usedTokens = PromptTokenizer.estimateTokens(lines.get(start) + "\n");
+        long usedTokens = estimateForGather(lines.get(start) + "\n", estimateModel, estimateModels);
         while (start > 0
-                && PromptTokenizer.estimateTokens(lines.get(start - 1) + "\n") <= effectiveBudget - usedTokens) {
+                && estimateForGather(lines.get(start - 1) + "\n", estimateModel, estimateModels) <= effectiveBudget - usedTokens) {
             start--;
-            usedTokens += PromptTokenizer.estimateTokens(lines.get(start) + "\n");
+            usedTokens += estimateForGather(lines.get(start) + "\n", estimateModel, estimateModels);
         }
-        if (start > 0) {
-            System.out.println("AI history pulled up to " + (lines.size() - start)
-                    + " messages (~" + (usedTokens + systemTokens) + " tokens of " + tokenBudget + " budget, system=" + systemTokens + ").");
+        if (start > 0 || !lines.isEmpty()) {
+            List<String> gathered = new ArrayList<>(lines.subList(start, lines.size()));
+            String dualEst = PromptTokenizer.formatDualTokenEstimates(String.join("\n", gathered));
+            System.out.println("AI history pulled up to " + gathered.size()
+                    + " messages (~" + (usedTokens + systemTokens) + " tokens of " + tokenBudget + " budget, system=" + systemTokens + " [" + dualEst + "]).");
+            return gathered;
         }
         return new ArrayList<>(lines.subList(start, lines.size()));
+    }
+
+    private static long estimateForGather(String text, String estimateModel, java.util.Collection<String> estimateModels) {
+        if (text == null || text.isEmpty()) return 0;
+        if (estimateModels != null && !estimateModels.isEmpty()) {
+            return PromptTokenizer.estimateTokensConservative(text, estimateModels);
+        }
+        return PromptTokenizer.estimateTokens(text, estimateModel);
     }
 
     public synchronized void scrubAiLog(long channelId) {

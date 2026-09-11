@@ -151,7 +151,10 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
             if (previewStr.length() > 1000) previewStr = previewStr.substring(0, 1000) + "...";
             String loggedEffort = payload.hasKey("reasoning_effort") ? payload.getString("reasoning_effort") : payload.hasKey("reasoning") ? payload.getObject("reasoning").getString("effort", reasoningEffort) : reasoningEffort;
             if (payload.hasKey("chat_template_kwargs")) loggedEffort += "+no_think";
-            System.out.println("ArliAI Reaction Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
+            String joinedForEst = String.join("\n", cappedMessages);
+            long modelEst = PromptTokenizer.estimateTokens((effectiveSystemPrompt != null ? effectiveSystemPrompt + "\n" : "") + joinedForEst, provider.model());
+            String dualEst = PromptTokenizer.formatDualTokenEstimates(joinedForEst);
+            System.out.println("ArliAI Reaction Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " est=" + PromptTokenizer.formatTokenCount(modelEst) + " (" + dualEst + ") previewLast" + previewCount + ": " + previewStr);
         } catch (Exception logEx) {
             System.out.println("ArliAI Reaction Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
         }
@@ -196,8 +199,8 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
                 || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
             return messages;
         }
-        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n") : 0;
-        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n");
+        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n", provider.model()) : 0;
+        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n", provider.model());
         long effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens - overheadTokens;
         if (effectiveBudget < 500) effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens;
         if (effectiveBudget <= 0) effectiveBudget = GROQ_TOKEN_BUDGET;
@@ -205,7 +208,7 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
         long[] tokenCounts = new long[messages.size()];
         long total = 0;
         for (int i = 0; i < messages.size(); i++) {
-            tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i));
+            tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i), provider.model());
             total += tokenCounts[i];
         }
         if (total <= effectiveBudget) {
@@ -219,7 +222,7 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
             budget -= tokenCounts[start];
         }
         System.out.println("Trimmed " + start + " oldest messages to fit " + provider.displayName()
-                + " token budget of " + GROQ_TOKEN_BUDGET + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
+                + " (" + provider.model() + ") token budget of " + GROQ_TOKEN_BUDGET + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 

@@ -21,6 +21,9 @@ import java.util.concurrent.CompletableFuture;
 public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
     private static final int SECOND_CHANCE_TIMEOUT_SECONDS = 600;
     private static final long GROQ_TOKEN_BUDGET = 8000;
+    static final int GROQ_QWEN_IPTM_LIMIT = 7000;
+    static final int GROQ_GPT_IPTM_LIMIT = 8000;
+    static final int GROQ_DEFAULT_IPTM_LIMIT = 8000;
     private final HttpClient client;
     private final List<Provider> providers;
     private final String systemPrompt;
@@ -108,17 +111,17 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
                     String errorMsg = cause.getMessage() != null ? cause.getMessage() : cause.toString();
                     if (!calibrationRetryDone && TokenCalibrationManager.isCalibrationError(errorMsg)) {
                         String promptForCalibration = buildCalibrationPrompt(request, provider);
-                        TokenCalibrationManager.getInstance().recordFromError(promptForCalibration, errorMsg);
+                        TokenCalibrationManager.getInstance().recordFromError(promptForCalibration, errorMsg, provider.model());
                         Integer actual = TokenCalibrationManager.extractActualTokensForCalibration(errorMsg);
                         Integer limit = TokenCalibrationManager.extractLimitForCalibration(errorMsg);
                         if (actual != null && limit != null && request.recentMessages() != null && request.recentMessages().size() > 10) {
-                            double targetRatio = limit * 0.85 / (double) actual;
-                            targetRatio = Math.max(0.3, Math.min(0.85, targetRatio));
-                            int newSize = Math.max(10, (int) (request.recentMessages().size() * targetRatio));
+                            int newSize = TokenCalibrationManager.computeTrimmedSize(request.recentMessages().size(), actual, limit);
                             if (newSize < request.recentMessages().size()) {
+                                double targetRatio = (double) newSize / request.recentMessages().size();
                                 java.util.List<String> truncated = new java.util.ArrayList<>(request.recentMessages().subList(request.recentMessages().size() - newSize, request.recentMessages().size()));
                                 GenerativeAiRequest truncatedRequest = new GenerativeAiRequest(truncated, request.systemPromptOverride());
-                                String calMsg = "Context exceeded (" + actual + "/" + limit + "). Calibrated factor to " + String.format("%.2f", TokenCalibrationManager.getInstance().getFactor()) + " and retrying with " + newSize + " messages (" + (int) (targetRatio * 100) + "%)...";
+                                String calMsg = "Context exceeded (" + actual + "/" + limit + "). Calibrated factor ["
+                                        + TokenCalibrationManager.familyForModel(provider.model()) + "] to " + String.format("%.2f", TokenCalibrationManager.getInstance().getFactor(provider.model())) + " and retrying with " + newSize + " messages (" + (int) (targetRatio * 100) + "%)...";
                                 System.out.println(calMsg);
                                 return attemptWithProvider(provider, truncatedRequest, deadlineMs, attempts, reasoningEffort, true);
                             }
@@ -173,7 +176,10 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
             if (previewStr.length() > 1000) previewStr = previewStr.substring(0, 1000) + "...";
             String loggedEffort = payload.hasKey("reasoning_effort") ? payload.getString("reasoning_effort") : payload.hasKey("reasoning") ? payload.getObject("reasoning").getString("effort", reasoningEffort) : reasoningEffort;
             if (payload.hasKey("chat_template_kwargs")) loggedEffort += "+no_think";
-            System.out.println("ArliAI Second Chance Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " previewLast" + previewCount + ": " + previewStr);
+            String joinedForEst = String.join("\n", cappedMessages);
+            long modelEst = PromptTokenizer.estimateTokens((effectiveSystemPrompt != null ? effectiveSystemPrompt + "\n" : "") + joinedForEst, provider.model());
+            String dualEst = PromptTokenizer.formatDualTokenEstimates(joinedForEst);
+            System.out.println("ArliAI Second Chance Request: " + provider.displayName() + " (" + provider.model() + ") reasoning=" + loggedEffort + " history=" + cappedMessages.size() + " est=" + PromptTokenizer.formatTokenCount(modelEst) + " (" + dualEst + ") previewLast" + previewCount + ": " + previewStr);
         } catch (Exception logEx) {
             System.out.println("ArliAI Second Chance Request: " + provider.displayName() + " (" + provider.model() + ") [preview log failed: " + logEx + "]");
         }
@@ -207,6 +213,23 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
 
     private static final java.util.Set<String> SMALL_CONTEXT_PROVIDERS = java.util.Set.of("Groq", "Cloudflare", "ArliAI");
 
+    static boolean isGroqQwenModel(String model) {
+        return model != null && model.toLowerCase().contains("qwen");
+    }
+
+    static int groqIptmLimitForModel(String model) {
+        if (isGroqQwenModel(model)) return GROQ_QWEN_IPTM_LIMIT;
+        if (model != null && model.toLowerCase().contains("gpt")) return GROQ_GPT_IPTM_LIMIT;
+        return GROQ_DEFAULT_IPTM_LIMIT;
+    }
+
+    static long tokenBudgetForProvider(Provider provider) {
+        if ("Groq".equals(provider.displayName())) {
+            return groqIptmLimitForModel(provider.model());
+        }
+        return GROQ_TOKEN_BUDGET;
+    }
+
     private List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
         String effectiveSystemPrompt = this.systemPrompt;
         return capForSmallContextProvider(provider, messages, effectiveSystemPrompt);
@@ -217,16 +240,17 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
                 || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
             return messages;
         }
-        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n") : 0;
-        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n");
-        long effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens - overheadTokens;
-        if (effectiveBudget < 500) effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens;
-        if (effectiveBudget <= 0) effectiveBudget = GROQ_TOKEN_BUDGET;
+        long tokenBudget = tokenBudgetForProvider(provider);
+        long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n", provider.model()) : 0;
+        long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n", provider.model());
+        long effectiveBudget = tokenBudget - systemTokens - overheadTokens;
+        if (effectiveBudget < 500) effectiveBudget = tokenBudget - systemTokens;
+        if (effectiveBudget <= 0) effectiveBudget = tokenBudget;
 
         long[] tokenCounts = new long[messages.size()];
         long total = 0;
         for (int i = 0; i < messages.size(); i++) {
-            tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i));
+            tokenCounts[i] = PromptTokenizer.estimateTokens(messages.get(i), provider.model());
             total += tokenCounts[i];
         }
         if (total <= effectiveBudget) {
@@ -240,7 +264,7 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
             budget -= tokenCounts[start];
         }
         System.out.println("Trimmed " + start + " oldest messages to fit " + provider.displayName()
-                + " token budget of " + GROQ_TOKEN_BUDGET + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
+                + " (" + provider.model() + ") token budget of " + tokenBudget + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 
