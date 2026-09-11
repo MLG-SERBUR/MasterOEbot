@@ -110,8 +110,21 @@ class RoundRobinGenerativeAiResponderTest {
         responderQwen.generateReply(new GenerativeAiRequest(List.of("hello?"))).join();
         DataObject qwenPayload = DataObject.fromJson(clientQwen.bodies.get(0));
         assertEquals("none", qwenPayload.getString("reasoning_effort"));
-        assertEquals("hidden", qwenPayload.getString("reasoning_format"));
+        org.junit.jupiter.api.Assertions.assertFalse(clientQwen.bodies.get(0).contains("\"reasoning_format\""));
         org.junit.jupiter.api.Assertions.assertFalse(clientQwen.bodies.get(0).contains("\"include_reasoning\""));
+
+        // Dot-version qwen models (qwen3.6/qwen3.8) must get the same non-thinking params
+        for (String dotQwen : List.of("qwen/qwen3.6-27b", "qwen/qwen3.8-27b")) {
+            RecordingHttpClient clientDotQwen = new RecordingHttpClient();
+            RoundRobinGenerativeAiResponder responderDotQwen = new RoundRobinGenerativeAiResponder(clientDotQwen, List.of(
+                    new RoundRobinGenerativeAiResponder.Provider("Groq", "https://groq.example/chat", "gk", dotQwen, Map.of(), false)
+            ), "system prompt");
+            responderDotQwen.generateReply(new GenerativeAiRequest(List.of("hello?"))).join();
+            DataObject dotQwenPayload = DataObject.fromJson(clientDotQwen.bodies.get(0));
+            assertEquals("none", dotQwenPayload.getString("reasoning_effort"));
+            org.junit.jupiter.api.Assertions.assertFalse(clientDotQwen.bodies.get(0).contains("\"reasoning_format\""));
+            org.junit.jupiter.api.Assertions.assertFalse(dotQwenPayload.getObject("chat_template_kwargs").getBoolean("enable_thinking"));
+        }
 
         RecordingHttpClient clientGpt = new RecordingHttpClient();
         RoundRobinGenerativeAiResponder responderGpt = new RoundRobinGenerativeAiResponder(clientGpt, List.of(

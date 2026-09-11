@@ -251,9 +251,10 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
             payload.put("include_reasoning", false);
             String effort = "none".equals(reasoningEffort) ? "low" : "medium";
             payload.put("reasoning_effort", effort);
-        } else if (model.startsWith("qwen/qwen3-")) {
+        } else if (isGroqQwenModel(model)) {
+            // No reasoning to format: reasoning_effort="none" disables thinking entirely
+            // (Groq docs: qwen3 models support none/default), so reasoning_format is omitted.
             payload.put("reasoning_effort", reasoningEffort);
-            payload.put("reasoning_format", "hidden");
             // ArliAI/vLLM style: Groq docs confirm reasoning_effort="none" disables for qwen3 (qwen/qwen3.6-27b supports none/default),
             // but underlying vLLM template also respects chat_template_kwargs.enable_thinking=false (see Qwen3, Featherless, vLLM docs).
             // Add it when we intend to disable reasoning to ensure true non-thinking mode and avoid hidden reasoning time.
