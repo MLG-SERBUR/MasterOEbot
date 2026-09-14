@@ -26,94 +26,49 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ArliAiReactionResponderTest {
+class ArliAiSecondChanceResponderTest {
     @Test
-    void hasDifferentTimeoutThanMain() {
-        assertEquals(15, getMainTimeout());
-        assertEquals(600, ArliAiReactionResponder.getTimeoutSeconds());
-        assertTrue(ArliAiReactionResponder.getTimeoutSeconds() != getMainTimeout());
-    }
-
-    private int getMainTimeout() {
-        // RoundRobin timeout is 15 (hardcoded); reflect via reflection or known value
-        return 15;
-    }
-
-    @Test
-    void buildsArliProvidersFromConfig() {
+    void configConstructorUsesSecondChancePrompt() {
         GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "second chance prompt",
-                null, null, null,
-                null, null, null, null, null, null, null, "arli-key",
-                List.of(), List.of(), List.of(),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-                List.of("Qwen3.5-27B-Derestricted", "ArliModel2"));
+                "main prompt",
+                "follow-up prompt",
+                null, null, null, null, null, null, null, null, null, null, "arli-key",
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of(),
+                List.of("Qwen3.5-27B-Derestricted"));
 
-        List<ArliAiReactionResponder.Provider> providers = ArliAiReactionResponder.buildProviders(config);
-        assertEquals(List.of("Qwen3.5-27B-Derestricted", "ArliModel2"),
-                providers.stream().map(ArliAiReactionResponder.Provider::model).toList());
-        assertTrue(providers.stream().allMatch(p -> "ArliAI".equals(p.displayName())));
-        assertEquals("https://api.arliai.com/v1/chat/completions", providers.get(0).url());
+        ArliAiSecondChanceResponder responder = new ArliAiSecondChanceResponder(config);
+
+        assertEquals("follow-up prompt", responder.getSystemPrompt());
     }
 
     @Test
-    void disablesArliAiReasoningWithNonThinkingDefaults() {
+    void payloadUsesFollowUpPromptByDefault() {
         RecordingHttpClient client = new RecordingHttpClient();
-        ArliAiReactionResponder responder = new ArliAiReactionResponder(client, List.of(
-                new ArliAiReactionResponder.Provider("ArliAI", "https://api.arliai.com/v1/chat/completions", "ak", "Qwen3.5-27B-Derestricted", Map.of(), false)
-        ), "system prompt");
-        GenerativeAiRequest request = new GenerativeAiRequest(List.of("hello?"), "You decide reactions");
+        ArliAiSecondChanceResponder responder = new ArliAiSecondChanceResponder(client, List.of(
+                new ArliAiSecondChanceResponder.Provider("ArliAI", "https://api.arliai.com/v1/chat/completions", "ak", "Qwen3.5-27B-Derestricted", Map.of(), false)
+        ), "follow-up prompt");
 
-        responder.generateReply(request).join();
+        responder.generateReply(new GenerativeAiRequest(List.of("<User> hi", "<MasterOEBot> yo"))).join();
 
         DataObject payload = DataObject.fromJson(client.bodies.get(0));
-        assertEquals(0.3, payload.getDouble("temperature"));
-        assertEquals(0.9, payload.getDouble("top_p"));
-        assertEquals(20, payload.getInt("top_k"));
-        assertEquals(0.0, payload.getDouble("min_p"));
-        assertEquals(1.5, payload.getDouble("presence_penalty"));
-        assertEquals(1.0, payload.getDouble("repetition_penalty"));
-        assertEquals("none", payload.getString("reasoning_effort"));
-        assertEquals(0, payload.getInt("thinking_token_budget"));
-        assertEquals("delta", payload.getString("output_kind"));
-        assertFalse(payload.getObject("chat_template_kwargs").getBoolean("enable_thinking"));
+        assertEquals("follow-up prompt", payload.getArray("messages").getObject(0).getString("content"));
     }
 
     @Test
-    void orderedFallbackTriesNextArliModelOnFailure() {
+    void payloadUsesOverrideWhenProvided() {
         RecordingHttpClient client = new RecordingHttpClient();
-        client.responseSequence.add(new StringResponse(null, 500, "Internal server error"));
-        client.responseSequence.add(new StringResponse(null, 200, "{\"choices\":[{\"message\":{\"content\":\"ok from second arli\"}}]}"));
-        ArliAiReactionResponder responder = new ArliAiReactionResponder(client, List.of(
-                new ArliAiReactionResponder.Provider("ArliAI", "https://api.arliai.com/v1/chat/completions", "ak", "model1", Map.of(), false),
-                new ArliAiReactionResponder.Provider("ArliAI", "https://api.arliai.com/v1/chat/completions", "ak", "model2", Map.of(), false)
-        ), "system prompt");
+        ArliAiSecondChanceResponder responder = new ArliAiSecondChanceResponder(client, List.of(
+                new ArliAiSecondChanceResponder.Provider("ArliAI", "https://api.arliai.com/v1/chat/completions", "ak", "Qwen3.5-27B-Derestricted", Map.of(), false)
+        ), "follow-up prompt");
 
-        String reply = responder.generateReply(new GenerativeAiRequest(List.of("hi"))).join();
-        assertEquals("ok from second arli", reply);
-        assertEquals(2, client.bodies.size());
-        assertEquals("model1", DataObject.fromJson(client.bodies.get(0)).getString("model"));
-        assertEquals("model2", DataObject.fromJson(client.bodies.get(1)).getString("model"));
+        responder.generateReply(new GenerativeAiRequest(List.of("<User> hi"), "explicit override")).join();
+
+        DataObject payload = DataObject.fromJson(client.bodies.get(0));
+        assertEquals("explicit override", payload.getArray("messages").getObject(0).getString("content"));
     }
 
-    @Test
-    void skipsArliWhenKeyMissing() {
-        GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "second chance prompt",
-                null, null, null,
-                null, null, null, null, null, null, null, null,
-                List.of(), List.of(), List.of(),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-                List.of("Qwen3.5-27B-Derestricted"));
-        assertTrue(ArliAiReactionResponder.buildProviders(config).isEmpty());
-    }
-
-    // Copy of recording client from other test (duplicated for isolation)
     private static final class RecordingHttpClient extends HttpClient {
         private final List<URI> uris = new ArrayList<>();
         private final List<String> bodies = new ArrayList<>();

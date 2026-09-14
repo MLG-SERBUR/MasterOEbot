@@ -15,7 +15,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Dedicated responder for second-chance (% chance) follow-up replies using ArliAI.
- * Uses 10 minute timeout (600s) and same system prompt as main responder (for now).
+ * Uses 10 minute timeout (600s) and dedicated follow-up system prompt.
  * Only starts if reaction service isn't currently awaiting ArliAI (via ArliAiCoordinator).
  */
 public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
@@ -30,11 +30,11 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
     private final ArliAiCoordinator coordinator;
 
     public ArliAiSecondChanceResponder(GenerativeAiConfig config) {
-        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt(), null);
+        this(HttpClient.newHttpClient(), buildProviders(config), config.secondChanceSystemPrompt(), null);
     }
 
     public ArliAiSecondChanceResponder(GenerativeAiConfig config, ArliAiCoordinator coordinator) {
-        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt(), coordinator);
+        this(HttpClient.newHttpClient(), buildProviders(config), config.secondChanceSystemPrompt(), coordinator);
     }
 
     public ArliAiSecondChanceResponder(HttpClient client, List<Provider> providers, String systemPrompt) {

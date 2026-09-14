@@ -258,6 +258,7 @@ class RoundRobinGenerativeAiResponderTest {
     void buildsProvidersInMatrixOrderExcludingArliAi() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 "ck", "gk", "ok",
                 "gemini-key", "mistral-key", "zai-key",
                 "cf-key", "cf-account", "ollama-key", "sn-key", "arli-key",
@@ -285,6 +286,7 @@ class RoundRobinGenerativeAiResponderTest {
     void buildsNewProvidersWithCorrectUrls() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 null, null, null,
                 "gemini-key", "mistral-key", "zai-key",
                 "cf-key", "cf-account", "ollama-key", "sn-key", null,
@@ -315,6 +317,7 @@ class RoundRobinGenerativeAiResponderTest {
     void skipsNewProvidersWhenKeysMissing() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 null, null, null,
                 null, "", null,
                 null, "account-without-key", null, "", null,
@@ -328,6 +331,7 @@ class RoundRobinGenerativeAiResponderTest {
     void cloudflareSkippedWithoutAccountIdEvenWithKey() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 null, null, null,
                 null, null, null,
                 "cf-key", null,
@@ -370,6 +374,7 @@ class RoundRobinGenerativeAiResponderTest {
     void arliAiExcludedFromMainProviderOrder() {
         GenerativeAiConfig config = new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 "ck", "gk", "ok",
                 "gemini-key", "mistral-key", "zai-key",
                 "cf-key", "cf-account", "ollama-key", "sn-key", "arli-test-key",
@@ -388,6 +393,7 @@ class RoundRobinGenerativeAiResponderTest {
                                               List<String> openrouterModels) {
         return new GenerativeAiConfig(
                 "system prompt",
+                "second chance prompt",
                 cerebrasKey, groqKey, openrouterKey,
                 null, null, null, null, null, null, null, null,
                 cerebrasModels, groqModels, openrouterModels,

@@ -16,3 +16,4 @@ config.yaml
 /.codex/
 token_calibration.json
 data/*
+token_calibration_history.jsonl

@@ -643,7 +643,7 @@ public class MarkovListener extends ListenerAdapter {
                 System.out.println("Skipping second chance reply in channel " + channelId + " - reaction service is active (awaiting ArliAI)");
                 return;
             }
-            // Determine system prompt for token budgeting (copy same system prompt for now)
+            // Determine system prompt for token budgeting (follow-up prompt for second chance)
             String systemPrompt = null;
             if (secondChanceResponder instanceof ArliAiSecondChanceResponder sc) {
                 systemPrompt = sc.getSystemPrompt();
@@ -656,7 +656,7 @@ public class MarkovListener extends ListenerAdapter {
             List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET, systemPrompt);
             String latest = recentMessages.isEmpty() ? "none" : recentMessages.get(recentMessages.size() - 1);
             System.out.println("Second chance ArliAI request for channel " + channelId + " with " + recentMessages.size() + " messages, latest at invocation: " + latest.substring(0, Math.min(500, latest.length())).replace("\n", " "));
-            GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
+            GenerativeAiRequest request = new GenerativeAiRequest(recentMessages, systemPrompt);
             int timeoutSeconds = (secondChanceResponder instanceof ArliAiSecondChanceResponder) ? ArliAiSecondChanceResponder.getTimeoutSeconds() : (int) GENERATIVE_AI_TIMEOUT_SECONDS;
             // For second chance we use 600s timeout; start typing for that duration
             List<ScheduledFuture<?>> typingTasks = startTyping(event, timeoutSeconds);

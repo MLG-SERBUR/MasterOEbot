@@ -50,4 +50,23 @@ class BotConfigTest {
         assertEquals(defaults.cerebrasModels(), config.generativeAiConfig().cerebrasModels());
         assertEquals(defaults.groqModels(), config.generativeAiConfig().groqModels());
     }
+
+    @Test
+    void missingSecondChancePromptFallsBackToDefault() throws IOException {
+        BotConfig config = BotConfig.load(writeConfig("""
+                    groqApiKey: "gk"
+                """));
+
+        assertEquals(GenerativeAiConfig.DEFAULT_SECOND_CHANCE_SYSTEM_PROMPT,
+                config.generativeAiConfig().secondChanceSystemPrompt());
+    }
+
+    @Test
+    void customSecondChancePromptLoads() throws IOException {
+        BotConfig config = BotConfig.load(writeConfig("""
+                    secondChanceSystemPrompt: "custom follow-up"
+                """));
+
+        assertEquals("custom follow-up", config.generativeAiConfig().secondChanceSystemPrompt());
+    }
 }
