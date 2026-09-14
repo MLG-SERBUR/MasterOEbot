@@ -27,6 +27,9 @@ public class TypeRacerCommandListener extends ListenerAdapter {
     }
 
     public void registerCommands(CommandListUpdateAction updater) {
+        // NOTE: Do not call queue() here. BotMain combines all listeners'
+        // commands into a single updateCommands() action, because each
+        // updateCommands() call replaces all global commands.
         updater.addCommands(
                 Commands.slash("typeracer", "Start or join a typing race")
                         .addSubcommands(
@@ -35,9 +38,6 @@ public class TypeRacerCommandListener extends ListenerAdapter {
                                 new SubcommandData("go", "Start the race countdown"),
                                 new SubcommandData("abort", "Cancel the current race")
                         )
-        ).queue(
-                success -> System.out.println("Registered typeracer slash commands."),
-                error -> System.err.println("Typeracer slash command registration failed. " + error.getMessage())
         );
     }
 

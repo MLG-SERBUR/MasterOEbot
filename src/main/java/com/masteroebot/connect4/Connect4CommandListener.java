@@ -64,6 +64,9 @@ public class Connect4CommandListener extends ListenerAdapter {
     }
 
     public void registerCommands(CommandListUpdateAction updater) {
+        // NOTE: Do not call queue() here. BotMain combines all listeners'
+        // commands into a single updateCommands() action, because each
+        // updateCommands() call replaces all global commands.
         updater.addCommands(
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
@@ -87,9 +90,6 @@ public class Connect4CommandListener extends ListenerAdapter {
                 Commands.slash("remind", "Set a reminder")
                         .addOption(OptionType.STRING, "time", "Time duration (e.g. 10m, 1h, 30s)", true)
                         .addOption(OptionType.STRING, "message", "What to remind you about", true)
-        ).queue(
-                success -> System.out.println("Registered slash commands."),
-                error -> System.err.println("Slash command registration failed. " + error.getMessage())
         );
     }
 

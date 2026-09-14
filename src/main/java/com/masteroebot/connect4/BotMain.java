@@ -71,8 +71,15 @@ public class BotMain {
         TypeRacerCommandListener typeracerListener = boot.typeracerListener();
         JDA jda = boot.jda();
         listener.setMarkovAvailable(markovAvailable);
-        listener.registerCommands(jda.updateCommands());
-        typeracerListener.registerCommands(jda.updateCommands());
+        // Single updateCommands() call: each updateCommands() replaces ALL
+        // global commands, so registering listeners separately wipes others.
+        net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction commandUpdater = jda.updateCommands();
+        listener.registerCommands(commandUpdater);
+        typeracerListener.registerCommands(commandUpdater);
+        commandUpdater.queue(
+                success -> System.out.println("Registered slash commands."),
+                error -> System.err.println("Slash command registration failed. " + error.getMessage())
+        );
         System.out.println("Connect4 bot is online.");
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
