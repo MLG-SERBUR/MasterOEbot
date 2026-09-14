@@ -22,6 +22,10 @@ import java.util.concurrent.CompletableFuture;
 public class ArliAiReactionResponder implements GenerativeAiResponder {
     private static final int REACTION_TIMEOUT_SECONDS = 600;
     private static final long GROQ_TOKEN_BUDGET = 8000; // reuse same budget for trimming if needed
+    /** Observed ArliAI context window for the qwen fallback models. */
+    static final int ARLIAI_INPUT_LIMIT = 12288;
+    /** Fetch ceiling for history gathering; default when no known limit. */
+    static final int MAX_GATHER_BUDGET = 128000;
     private final HttpClient client;
     private final List<Provider> providers;
     private final String systemPrompt;
@@ -187,7 +191,42 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
         payload.put("output_kind", "delta");
     }
 
-    private static final java.util.Set<String> SMALL_CONTEXT_PROVIDERS = java.util.Set.of("Groq", "Cloudflare", "ArliAI");
+    /** Token budget for a provider: known input limit, else 8k. */
+    static long tokenBudgetForProvider(Provider provider) {
+        Integer known = knownInputLimitForProvider(provider);
+        if (known != null) return known;
+        return GROQ_TOKEN_BUDGET;
+    }
+
+    /**
+     * Known input-token budget for a provider, or null when unknown.
+     * This chain is ArliAI-only.
+     */
+    static Integer knownInputLimitForProvider(Provider provider) {
+        if (provider == null || provider.displayName() == null) return null;
+        if ("ArliAI".equals(provider.displayName())) return ARLIAI_INPUT_LIMIT;
+        return null;
+    }
+
+    /**
+     * Initial history-gather budget: the known limit of the first provider
+     * with one, capped at the fetch ceiling. Falls back to MAX_GATHER_BUDGET
+     * when no provider has a known limit.
+     */
+    static int gatherBudgetForProviders(List<Provider> providers) {
+        if (providers != null) {
+            for (Provider provider : providers) {
+                Integer limit = knownInputLimitForProvider(provider);
+                if (limit != null) return Math.min(limit, MAX_GATHER_BUDGET);
+            }
+        }
+        return MAX_GATHER_BUDGET;
+    }
+
+    /** Initial history-gather budget for this responder's provider chain. */
+    public int gatherBudget() {
+        return gatherBudgetForProviders(providers);
+    }
 
     private List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
         String effectiveSystemPrompt = this.systemPrompt;
@@ -195,15 +234,19 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
     }
 
     private static List<String> capForSmallContextProvider(Provider provider, List<String> messages, String systemPrompt) {
-        if (messages == null || messages.isEmpty()
-                || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
+        if (messages == null || messages.isEmpty()) {
             return messages;
         }
+        Integer knownLimit = knownInputLimitForProvider(provider);
+        if (knownLimit == null) {
+            return messages;
+        }
+        long tokenBudget = knownLimit;
         long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n", provider.model()) : 0;
         long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n", provider.model());
-        long effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens - overheadTokens;
-        if (effectiveBudget < 500) effectiveBudget = GROQ_TOKEN_BUDGET - systemTokens;
-        if (effectiveBudget <= 0) effectiveBudget = GROQ_TOKEN_BUDGET;
+        long effectiveBudget = tokenBudget - systemTokens - overheadTokens;
+        if (effectiveBudget < 500) effectiveBudget = tokenBudget - systemTokens;
+        if (effectiveBudget <= 0) effectiveBudget = tokenBudget;
 
         long[] tokenCounts = new long[messages.size()];
         long total = 0;
@@ -222,7 +265,7 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
             budget -= tokenCounts[start];
         }
         System.out.println("Trimmed " + start + " oldest messages to fit " + provider.displayName()
-                + " (" + provider.model() + ") token budget of " + GROQ_TOKEN_BUDGET + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
+                + " (" + provider.model() + ") token budget of " + tokenBudget + " tokens (effective " + effectiveBudget + " after system=" + systemTokens + ").");
         return new ArrayList<>(messages.subList(start, messages.size()));
     }
 

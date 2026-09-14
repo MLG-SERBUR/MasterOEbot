@@ -12,7 +12,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
@@ -22,6 +21,33 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     static final int GROQ_QWEN_IPTM_LIMIT = 7000;
     static final int GROQ_GPT_IPTM_LIMIT = 8000;
     static final int GROQ_DEFAULT_IPTM_LIMIT = 8000;
+    // Free-tier per-request input budgets (researched Sep 2026; recheck when
+    // fallbacks start failing — providers change these without notice):
+    // Cerebras free trial: 30K uncached input TPM (official model docs).
+    static final int CEREBRAS_INPUT_LIMIT = 30000;
+    // Gemini free: ~250K input TPM on Flash-class models (conservative floor;
+    // Lite models allow more). Context is 1M, TPM binds first.
+    static final int GEMINI_INPUT_LIMIT = 250000;
+    // SambaNova free: no per-minute token cap published (20 RPM / 20 RPD /
+    // 200K TPD per model); binding per-request limit is model context, min
+    // 128K across configured models (DeepSeek-V3.1, Llama-3.3-70B).
+    static final int SAMBANOVA_INPUT_LIMIT = 128000;
+    // Z.ai free Flash models (glm-4.7/4.5-flash, $0): ~200K context, no
+    // published TPM; context binds per request.
+    static final int ZAI_INPUT_LIMIT = 200000;
+    // Cloudflare Workers AI: 300 RPM text-gen, 10K neurons/day free; no
+    // per-request token cap published, so model context binds
+    // (@cf/openai/gpt-oss-120b = 131K).
+    static final int CLOUDFLARE_INPUT_LIMIT = 131072;
+    // Mistral free (Experiment), Ollama Cloud (GPU-time quotas) and OpenRouter
+    // :free (model-dependent context) have no usable published per-request
+    // token number -> unknown (null), never constrain.
+    /**
+     * Fetch ceiling for history gathering: file reads are cheap (no Matrix
+     * pagination timeout), but prompts above this are unusable without a
+     * gather rework. Also the default when no chain attempt has a known limit.
+     */
+    static final int MAX_GATHER_BUDGET = 128000;
     /** Headroom kept when trimming to a limit, so the retry fits under TPM/context. */
     static final double TRIM_HEADROOM_RATIO = 0.85;
     private final HttpClient client;
@@ -183,8 +209,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return model != null && (model.equals("openrouter/free") || model.contains(":free"));
     }
 
-    private static final Set<String> SMALL_CONTEXT_PROVIDERS = Set.of("Groq", "Cloudflare");
-
     static boolean isGroqQwenModel(String model) {
         return model != null && model.toLowerCase().contains("qwen");
     }
@@ -195,12 +219,54 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
         return GROQ_DEFAULT_IPTM_LIMIT;
     }
 
-    /** Token budget for a provider: Groq qwen ~7k, other Groq ~8k, rest 8k. */
+    /** Token budget for a provider: known per-request input limit, else 8k. */
     static long tokenBudgetForProvider(Provider provider) {
-        if ("Groq".equals(provider.displayName())) {
-            return groqIptmLimitForModel(provider.model());
-        }
+        Integer known = knownInputLimitForProvider(provider);
+        if (known != null) return known;
         return GROQ_TOKEN_BUDGET;
+    }
+
+    /**
+     * Known input-token budget for a provider, or null when unknown.
+     * Groq limits are observed values; Cerebras/Gemini are official free-tier
+     * TPM; SambaNova/ZAI/Cloudflare fall back to model context (no published
+     * per-request token cap). Unknown backends never constrain the gather.
+     */
+    static Integer knownInputLimitForProvider(Provider provider) {
+        if (provider == null || provider.displayName() == null) return null;
+        switch (provider.displayName()) {
+            case "Groq": return groqIptmLimitForModel(provider.model());
+            case "Cerebras": return CEREBRAS_INPUT_LIMIT;
+            case "Gemini": return GEMINI_INPUT_LIMIT;
+            case "SambaNova": return SAMBANOVA_INPUT_LIMIT;
+            case "ZAI": return ZAI_INPUT_LIMIT;
+            case "Cloudflare": return CLOUDFLARE_INPUT_LIMIT;
+            default: return null;
+        }
+    }
+
+    /**
+     * Initial history-gather budget: the known limit of the first provider
+     * with one (i.e. the model currently used first), capped at the fetch
+     * ceiling, so reordering the fallback chain needs no code change.
+     * Falls back to MAX_GATHER_BUDGET when no provider has a known limit.
+     * Per-provider trim (capForSmallContextProvider) shrinks from here for
+     * smaller fallbacks. No expand step: the file-based gather is single-shot
+     * and the responder has no history access for re-gathering.
+     */
+    static int gatherBudgetForProviders(List<Provider> providers) {
+        if (providers != null) {
+            for (Provider provider : providers) {
+                Integer limit = knownInputLimitForProvider(provider);
+                if (limit != null) return Math.min(limit, MAX_GATHER_BUDGET);
+            }
+        }
+        return MAX_GATHER_BUDGET;
+    }
+
+    /** Initial history-gather budget for this responder's provider chain. */
+    public int gatherBudget() {
+        return gatherBudgetForProviders(providers);
     }
 
     private List<String> capForSmallContextProvider(Provider provider, List<String> messages) {
@@ -209,11 +275,14 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     }
 
     private static List<String> capForSmallContextProvider(Provider provider, List<String> messages, String systemPrompt) {
-        if (messages == null || messages.isEmpty()
-                || !SMALL_CONTEXT_PROVIDERS.contains(provider.displayName())) {
+        if (messages == null || messages.isEmpty()) {
             return messages;
         }
-        long tokenBudget = tokenBudgetForProvider(provider);
+        Integer knownLimit = knownInputLimitForProvider(provider);
+        if (knownLimit == null) {
+            return messages;
+        }
+        long tokenBudget = knownLimit;
         long systemTokens = systemPrompt != null ? PromptTokenizer.estimateTokens(systemPrompt + "\n", provider.model()) : 0;
         long overheadTokens = PromptTokenizer.estimateTokens("system\nuser\n", provider.model());
         long effectiveBudget = tokenBudget - systemTokens - overheadTokens;

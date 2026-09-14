@@ -17,3 +17,4 @@ config.yaml
 token_calibration.json
 data/*
 token_calibration_history.jsonl
+token_calibration_history.pre-simplify.jsonl

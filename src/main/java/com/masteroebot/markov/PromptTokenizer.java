@@ -6,8 +6,8 @@ final class PromptTokenizer {
 
     /**
      * Estimates prompt tokens using heuristic + self-calibration
-     * (aggressive heuristic: 4 chars/token prose, 3.5 code, 1.5 CJK,
-     * URL correction, wrapped by EMA calibration factor).
+     * (plain length/max-observed-chars-per-token per family: gpt 2.75,
+     * qwen 2.46, wrapped by EMA calibration factor).
      */
     static long estimateTokens(String text) {
         return estimateTokens(text, (String) null);

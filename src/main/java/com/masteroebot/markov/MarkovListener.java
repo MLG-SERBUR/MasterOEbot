@@ -50,6 +50,19 @@ public class MarkovListener extends ListenerAdapter {
     private static final double MIN_RESPONSE_CHANCE = 0.0;
     public static final long GENERATIVE_AI_TOKEN_BUDGET = 8000;
     private static final long GENERATIVE_AI_TIMEOUT_SECONDS = 15;
+
+    /**
+     * Initial history-gather budget for a responder chain: the known input
+     * limit of the first provider with one, so reordering the fallback chain
+     * needs no code change. Falls back to GENERATIVE_AI_TOKEN_BUDGET for
+     * unknown responder types (e.g. placeholders in tests).
+     */
+    public static long gatherBudgetFor(GenerativeAiResponder responder) {
+        if (responder instanceof RoundRobinGenerativeAiResponder rr) return rr.gatherBudget();
+        if (responder instanceof ArliAiSecondChanceResponder sc) return sc.gatherBudget();
+        if (responder instanceof ArliAiReactionResponder ar) return ar.gatherBudget();
+        return GENERATIVE_AI_TOKEN_BUDGET;
+    }
     private static final long REACTION_AI_TIMEOUT_SECONDS = 600;
     private static final long REACTION_DEBOUNCE_MIN_SECONDS = 120;
     private static final long REACTION_DEBOUNCE_MAX_SECONDS = 300;
@@ -339,7 +352,7 @@ public class MarkovListener extends ListenerAdapter {
         if (generativeAiResponder instanceof RoundRobinGenerativeAiResponder rr) {
             systemPrompt = rr.getSystemPrompt();
         }
-        List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET, systemPrompt);
+        List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, gatherBudgetFor(generativeAiResponder), systemPrompt);
 
         if (referencedMessage != null && !recentMessages.isEmpty()) {
             String referencedContent = MarkovUtils.getDisplayNameContent(referencedMessage);
@@ -653,7 +666,7 @@ public class MarkovListener extends ListenerAdapter {
                 systemPrompt = ar.getSystemPrompt();
             }
             // Include as part of logs the first AI's response: fetch latest AI log at invocation time
-            List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, GENERATIVE_AI_TOKEN_BUDGET, systemPrompt);
+            List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, gatherBudgetFor(secondChanceResponder), systemPrompt);
             String latest = recentMessages.isEmpty() ? "none" : recentMessages.get(recentMessages.size() - 1);
             System.out.println("Second chance ArliAI request for channel " + channelId + " with " + recentMessages.size() + " messages, latest at invocation: " + latest.substring(0, Math.min(500, latest.length())).replace("\n", " "));
             GenerativeAiRequest request = new GenerativeAiRequest(recentMessages, systemPrompt);

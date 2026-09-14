@@ -211,7 +211,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         if (generativeAiResponder instanceof com.masteroebot.markov.RoundRobinGenerativeAiResponder rr) {
             systemPrompt = rr.getSystemPrompt();
         }
-        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessagesForAiUntilTokenBudget(channelId, MarkovListener.GENERATIVE_AI_TOKEN_BUDGET, systemPrompt));
+        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessagesForAiUntilTokenBudget(channelId, MarkovListener.gatherBudgetFor(generativeAiResponder), systemPrompt));
         OptionMapping promptOption = event.getOption("prompt");
         if (promptOption != null && !promptOption.getAsString().isBlank()) {
             recentMessages.add(promptOption.getAsString().trim());
