@@ -8,6 +8,9 @@ public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
     public static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
     private static final String BOT_MESSAGE_TAG = BOT_MESSAGE_PREFIX.trim();
+    // Human username AI sometimes prepends to its reply. Output-strip only —
+    // not bot identity, never scrub, never log as bot.
+    private static final String AI_OUTPUT_STRIP_TAG = "<MasterOE>";
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
@@ -124,15 +127,36 @@ public class MarkovManager {
     }
 
     /**
-     * Strips leading {@code <MasterOEBot>} tags the AI sometimes prepends to
-     * its reply. Loops to handle repeated prefixes and tolerates leading
-     * whitespace and a missing trailing space.
+     * Canonical bot log prefix only ({@code <MasterOEBot>}). Used for scrub
+     * detection. {@code <MasterOE>} is a human username — never scrub.
+     */
+    public static boolean isBotPrefix(String text) {
+        return startsWithTag(text, BOT_MESSAGE_TAG);
+    }
+
+    private static boolean startsWithTag(String text, String tag) {
+        if (text == null) return false;
+        return text.length() >= tag.length()
+                && text.regionMatches(true, 0, tag, 0, tag.length());
+    }
+
+    /**
+     * Strips leading bot tag plus human {@code <MasterOE>} tag AI sometimes
+     * prepends to its reply. Output-only: loops to handle repeated prefixes
+     * and tolerates leading whitespace and a missing trailing space. Match
+     * is case-insensitive (e.g. {@code <MasterOEbot>}).
      */
     public static String stripBotPrefix(String text) {
         if (text == null) return "";
         String stripped = text.stripLeading();
-        while (stripped.startsWith(BOT_MESSAGE_TAG)) {
-            stripped = stripped.substring(BOT_MESSAGE_TAG.length()).stripLeading();
+        while (true) {
+            if (startsWithTag(stripped, BOT_MESSAGE_TAG)) {
+                stripped = stripped.substring(BOT_MESSAGE_TAG.length()).stripLeading();
+            } else if (startsWithTag(stripped, AI_OUTPUT_STRIP_TAG)) {
+                stripped = stripped.substring(AI_OUTPUT_STRIP_TAG.length()).stripLeading();
+            } else {
+                break;
+            }
         }
         return stripped;
     }
@@ -304,7 +328,7 @@ public class MarkovManager {
             for (String line : lines) {
                 String trimmed = line.trim();
                 if (trimmed.startsWith("<") && trimmed.contains("> ")) {
-                    inBotMessage = trimmed.startsWith(BOT_MESSAGE_PREFIX.trim());
+                    inBotMessage = isBotPrefix(trimmed);
                 }
 
                 if (inBotMessage) {

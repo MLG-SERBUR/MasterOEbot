@@ -58,7 +58,7 @@ public class AiLogScrubber {
                 String line = lines.get(i);
                 String trimmed = line.trim();
                 if (trimmed.startsWith("<") && trimmed.contains("> ")) {
-                    inBotMessage = trimmed.startsWith(MarkovManager.BOT_MESSAGE_PREFIX.trim());
+                    inBotMessage = MarkovManager.isBotPrefix(trimmed);
                 }
 
                 if (inBotMessage) {
