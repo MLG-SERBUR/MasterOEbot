@@ -8,9 +8,6 @@ public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
     public static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
     private static final String BOT_MESSAGE_TAG = BOT_MESSAGE_PREFIX.trim();
-    // Human username AI sometimes prepends to its reply. Output-strip only —
-    // not bot identity, never scrub, never log as bot.
-    private static final String AI_OUTPUT_STRIP_TAG = "<MasterOE>";
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
     private final MarkovConfig config;
@@ -141,20 +138,28 @@ public class MarkovManager {
     }
 
     /**
-     * Strips leading bot tag plus human {@code <MasterOE>} tag AI sometimes
-     * prepends to its reply. Output-only: loops to handle repeated prefixes
-     * and tolerates leading whitespace and a missing trailing space. Match
-     * is case-insensitive (e.g. {@code <MasterOEbot>}).
+     * Strips any leading {@code <...>} tag AI sometimes prepends to its
+     * reply (e.g. {@code <MasterOEBot>}, {@code <MasterOE>}, any username).
+     * Output-only: loops to handle repeated prefixes and tolerates leading
+     * whitespace. A tag is a leading {@code <}, a non-empty name without
+     * brackets/newlines, then {@code >}.
      */
     public static String stripBotPrefix(String text) {
         if (text == null) return "";
         String stripped = text.stripLeading();
-        while (true) {
-            if (startsWithTag(stripped, BOT_MESSAGE_TAG)) {
-                stripped = stripped.substring(BOT_MESSAGE_TAG.length()).stripLeading();
-            } else if (startsWithTag(stripped, AI_OUTPUT_STRIP_TAG)) {
-                stripped = stripped.substring(AI_OUTPUT_STRIP_TAG.length()).stripLeading();
-            } else {
+        while (stripped.startsWith("<")) {
+            int end = stripped.indexOf('>');
+            if (end <= 1) {
+                break;
+            }
+            String inside = stripped.substring(1, end);
+            if (inside.contains("<") || inside.contains(">")
+                    || inside.contains("\n") || inside.contains("\r")
+                    || inside.trim().isEmpty()) {
+                break;
+            }
+            stripped = stripped.substring(end + 1).stripLeading();
+            if (stripped.isEmpty()) {
                 break;
             }
         }
