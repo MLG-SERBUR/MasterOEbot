@@ -25,7 +25,22 @@ import net.dv8tion.jda.api.requests.CloseCode;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 
 public class BotMain {
-    public static void main(String[] args) throws LoginException, InterruptedException, IOException {
+    public static void main(String[] args) {
+        try {
+            runBot(args);
+        } catch (Throwable t) {
+            // An unhandled startup failure (e.g. DNS not yet available at boot)
+            // kills only the main thread. JDA/OkHttp leave non-daemon worker
+            // threads behind, so the JVM would hang forever as a zombie process
+            // and systemd would never see an exit, meaning Restart=always would
+            // never fire. Exit explicitly so the service manager restarts us.
+            t.printStackTrace();
+            System.err.println("MasterOEbot failed to start. Exiting so the service manager can restart us.");
+            System.exit(1);
+        }
+    }
+
+    private static void runBot(String[] args) throws LoginException, InterruptedException, IOException {
         if (args.length > 0 && args[0].equals("--scrub")) {
             com.masteroebot.markov.BrainScrubber.main(args);
             return;
@@ -58,10 +73,33 @@ public class BotMain {
                 new ArliAiSecondChanceResponder(config.generativeAiConfig(), coordinator);
         System.out.println("Loaded system prompt: " + config.generativeAiConfig().systemPrompt());
 
-        BootResult boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
+        // Retry startup so a transient outage (e.g. DNS not reachable yet right
+        // after boot) doesn't take the bot down for good. Network errors surface
+        // here as runtime exceptions (JDA wraps UnknownHostException in
+        // ErrorResponseException). InterruptedException is never retried.
+        BootResult boot = null;
+        final int maxAttempts = 5;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
+                break;
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            } catch (LoginException | RuntimeException e) {
+                if (attempt >= maxAttempts) {
+                    throw e;
+                }
+                System.err.println("Startup attempt " + attempt + "/" + maxAttempts + " failed: " + e);
+                System.err.println("Retrying in 15 seconds...");
+                Thread.sleep(15_000);
+            }
+        }
         boolean markovAvailable = (boot != null && boot.markovListener() != null);
 
         if (boot == null) {
+            // DISALLOWED_INTENTS: retrying with MESSAGE_CONTENT enabled is
+            // pointless, so this second attempt is not retried on failure.
             boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
             markovAvailable = false;
         }
