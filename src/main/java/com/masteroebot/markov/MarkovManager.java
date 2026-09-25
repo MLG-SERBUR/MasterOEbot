@@ -10,6 +10,7 @@ public class MarkovManager {
     private static final String BOT_MESSAGE_TAG = BOT_MESSAGE_PREFIX.trim();
     private static final String BRAIN_EXTENSION = ".brain";
     private static final String AI_LOG_EXTENSION = ".ai.log";
+    private static final String CHAT_LOG_EXTENSION = ".chat.log";
     private final MarkovConfig config;
     private final Path brainDir;
     private final Map<Long, JMegaHal> brains = new HashMap<>();
@@ -124,6 +125,37 @@ public class MarkovManager {
     }
 
     /**
+     * Permanent chat log ({@code <channelId>.chat.log}) in the same
+     * {@code <DisplayName> message} format as the AI log, but never scrubbed.
+     * Retains {@code <MasterOEBot>} lines so bot output can later refine the
+     * system prompt. Scrubbers and {@link #scrubAiLog} never touch this file.
+     */
+    public synchronized void appendToChatLog(long channelId, String authorName, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        ensureChatLogInitialized(channelId);
+        appendLine(channelId, "<" + authorName + "> " + trimmed, getChatLogPath(channelId), "chat log");
+    }
+
+    public synchronized void appendToChatLog(long channelId, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = message.trim();
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        ensureChatLogInitialized(channelId);
+        appendLine(channelId, trimmed, getChatLogPath(channelId), "chat log");
+    }
+
+    public synchronized void appendBotMessageToChatLog(long channelId, String message) {
+        if (message == null || message.trim().isEmpty()) return;
+        String trimmed = stripBotPrefix(message.trim());
+        if (trimmed.isEmpty()) return;
+        if (ProfanityFilter.containsProfanity(trimmed)) return;
+        ensureChatLogInitialized(channelId);
+        appendLine(channelId, BOT_MESSAGE_PREFIX + trimmed, getChatLogPath(channelId), "chat log");
+    }
+
+    /**
      * Canonical bot log prefix only ({@code <MasterOEBot>}). Used for scrub
      * detection. {@code <MasterOE>} is a human username — never scrub.
      */
@@ -182,6 +214,64 @@ public class MarkovManager {
 
     public synchronized boolean aiLogExists(long channelId) {
         return Files.exists(getAiLogPath(channelId));
+    }
+
+    public synchronized void ensureChatLogInitialized(long channelId) {
+        Path chatLogPath = getChatLogPath(channelId);
+        if (Files.exists(chatLogPath)) {
+            return;
+        }
+
+        try {
+            Files.createDirectories(chatLogPath.getParent());
+            Files.createFile(chatLogPath);
+        } catch (IOException e) {
+            System.err.println("Failed to initialize chat log for channel " + channelId + ": " + e.getMessage());
+            return;
+        }
+        backfillChatLogFromAiLog(channelId);
+    }
+
+    public synchronized boolean chatLogExists(long channelId) {
+        return Files.exists(getChatLogPath(channelId));
+    }
+
+    /**
+     * One-time backfill for channels that already have an AI log but no chat
+     * log yet (e.g. upgrade from a version without chat logging). Copies
+     * existing AI log lines verbatim so no bot history is lost. No-op when the
+     * chat log already has content or no AI log exists.
+     */
+    public synchronized void backfillChatLogFromAiLog(long channelId) {
+        Path chatLogPath = getChatLogPath(channelId);
+        Path aiLogPath = getAiLogPath(channelId);
+        try {
+            if (!Files.exists(aiLogPath)) return;
+            boolean chatEmpty = !Files.exists(chatLogPath) || Files.size(chatLogPath) == 0;
+            if (!chatEmpty) return;
+            List<String> lines = Files.readAllLines(aiLogPath);
+            if (lines.isEmpty()) return;
+            Files.createDirectories(chatLogPath.getParent());
+            try (BufferedWriter writer = Files.newBufferedWriter(chatLogPath,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+                for (String line : lines) {
+                    writer.write(line);
+                    writer.newLine();
+                }
+            }
+            System.out.println("Backfilled chat log for channel " + channelId + " with " + lines.size() + " lines from AI log.");
+        } catch (IOException e) {
+            System.err.println("Failed to backfill chat log for channel " + channelId + ": " + e.getMessage());
+        }
+    }
+
+    public synchronized List<String> getRecentChatLog(long channelId, int limit) {
+        ensureChatLogInitialized(channelId);
+        Path path = getChatLogPath(channelId);
+        if (Files.exists(path)) {
+            return getRecentLines(path, limit, "chat log", channelId);
+        }
+        return Collections.emptyList();
     }
 
     private void appendLine(long channelId, String line, Path path, String logName) {
@@ -358,6 +448,10 @@ public class MarkovManager {
 
     private Path getAiLogPath(long channelId) {
         return brainDir.resolve(channelId + AI_LOG_EXTENSION);
+    }
+
+    Path getChatLogPath(long channelId) {
+        return brainDir.resolve(channelId + CHAT_LOG_EXTENSION);
     }
 
     private JMegaHal newBrain(long channelId) {

@@ -105,6 +105,13 @@ public class MarkovListener extends ListenerAdapter {
                 firstInvocationTimeByChannel.putIfAbsent(channelId, now);
                 channelsNeedingScrub.add(channelId);
             }
+            // Permanent chat log keeps bot lines scrub removes from AI log.
+            // Backfill once so pre-existing history is retained for prompt work.
+            try {
+                manager.backfillChatLogFromAiLog(channelId);
+            } catch (Exception e) {
+                System.err.println("Failed to backfill chat log for channel " + channelId + ": " + e.getMessage());
+            }
         }
     }
 
@@ -189,6 +196,7 @@ public class MarkovListener extends ListenerAdapter {
             manager.appendToBrain(channelId, content);
             String authorName = event.getMember() != null ? event.getMember().getEffectiveName() : event.getAuthor().getEffectiveName();
             manager.appendToAiLog(channelId, authorName, content);
+            manager.appendToChatLog(channelId, authorName, content);
             
             if (messageCount.incrementAndGet() >= 100) {
                 messageCount.set(0);
@@ -330,6 +338,7 @@ public class MarkovListener extends ListenerAdapter {
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
                             stopTyping(typingTasks);
+                            manager.appendBotMessageToChatLog(channelId, reply);
                             channelsNeedingScrub.add(channelId);
                             if (allowSecondReply) {
                                 scheduleSecondReply(event, channelId, content);
@@ -711,6 +720,7 @@ public class MarkovListener extends ListenerAdapter {
                                         .setAllowedMentions(Collections.emptyList())
                                         .queue(success -> {
                                             stopTyping(fallbackTyping);
+                                            manager.appendBotMessageToChatLog(channelId, fallbackReply);
                                             channelsNeedingScrub.add(channelId);
                                         }, err -> stopTyping(fallbackTyping));
                             }, delaySeconds, TimeUnit.SECONDS);
@@ -750,6 +760,7 @@ public class MarkovListener extends ListenerAdapter {
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
                             stopTyping(typingTasks);
+                            manager.appendBotMessageToChatLog(channelId, secondReply);
                             channelsNeedingScrub.add(channelId);
                         }, error -> stopTyping(typingTasks));
             }, delaySeconds, TimeUnit.SECONDS);
@@ -758,6 +769,7 @@ public class MarkovListener extends ListenerAdapter {
 
     private void trackAiMessage(long channelId, String message) {
         manager.appendBotMessageToAiLog(channelId, message);
+        manager.appendBotMessageToChatLog(channelId, message);
         channelsNeedingScrub.add(channelId);
     }
 
@@ -779,6 +791,7 @@ public class MarkovListener extends ListenerAdapter {
     private void seedAiLogFromHistory(MessageReceivedEvent event, long channelId) {
         System.out.println("Initializing AI log for channel " + channelId + " from history...");
         manager.ensureAiLogInitialized(channelId);
+        manager.ensureChatLogInitialized(channelId);
         event.getChannel().getHistory().retrievePast(100).queue(messages -> {
             for (int i = messages.size() - 1; i >= 0; i--) {
                 Message msg = messages.get(i);
@@ -786,10 +799,12 @@ public class MarkovListener extends ListenerAdapter {
                 if (!content.isEmpty() && !ProfanityFilter.containsProfanity(content)) {
                     if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
                         manager.appendBotMessageToAiLog(channelId, content);
+                        manager.appendBotMessageToChatLog(channelId, content);
                         channelsNeedingScrub.add(channelId);
                     } else {
                         String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
                         manager.appendToAiLog(channelId, authorName, content);
+                        manager.appendToChatLog(channelId, authorName, content);
                     }
                 }
             }
