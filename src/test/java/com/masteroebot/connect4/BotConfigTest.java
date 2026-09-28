@@ -52,6 +52,16 @@ class BotConfigTest {
     }
 
     @Test
+    void missingSystemPromptFallsBackToCodeDefault() throws IOException {
+        BotConfig config = BotConfig.load(writeConfig("""
+                    groqApiKey: "gk"
+                """));
+
+        assertEquals(GenerativeAiConfig.DEFAULT_SYSTEM_PROMPT,
+                config.generativeAiConfig().systemPrompt());
+    }
+
+    @Test
     void missingSecondChancePromptFallsBackToDefault() throws IOException {
         BotConfig config = BotConfig.load(writeConfig("""
                     groqApiKey: "gk"

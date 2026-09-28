@@ -1,0 +1,168 @@
+=== P6_terse | qwen | caseA | run0 | newest: <MasterOE> Don't make me hungry ===
+reply: no i cant draw
+
+=== P6_terse | qwen | caseA | run1 | newest: <MasterOE> Don't make me hungry ===
+reply: im a text bot not a painter
+
+=== P6_terse | qwen | caseC | run0 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty
+
+=== P6_terse | qwen | caseC | run1 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty
+
+=== P6_terse | qwen | caseD | run0 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep going
+
+=== P6_terse | qwen | caseD | run1 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep going
+
+=== P6_terse | qwen | caseE | run0 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: who
+
+=== P6_terse | qwen | caseE | run1 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: who
+
+=== P6_terse | qwen | caseF_early_short | run0 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yes
+
+=== P6_terse | qwen | caseF_early_short | run1 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yes
+
+=== P6_terse | qwen | caseG_apologize | run0 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: sorry
+
+=== P6_terse | qwen | caseG_apologize | run1 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: sorry
+
+=== P6_terse | qwen | caseH_kirby | run0 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: bro that is a crime
+
+=== P6_terse | qwen | caseH_kirby | run1 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: idk but it looks delicious
+
+=== P7_hangout | qwen | caseA | run0 | newest: <MasterOE> Don't make me hungry ===
+reply: lol yeah you did
+
+=== P7_hangout | qwen | caseA | run1 | newest: <MasterOE> Don't make me hungry ===
+reply: lol yeah you definitely did
+
+=== P7_hangout | qwen | caseC | run0 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: Guilty as charged. That’s just brutal.
+
+=== P7_hangout | qwen | caseC | run1 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: Guilty as charged. That’s just rude.
+
+=== P7_hangout | qwen | caseD | run0 | newest: <MasterOE> @MasterOEbot ===
+reply: nah, keep the vibes going, it’s working
+
+=== P7_hangout | qwen | caseD | run1 | newest: <MasterOE> @MasterOEbot ===
+reply: nah, keep it weird. i’m into it
+
+=== P7_hangout | qwen | caseE | run0 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: nah, i’m more of a comic guy
+
+=== P7_hangout | qwen | caseE | run1 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: nah, i think he’s a bit much
+
+=== P7_hangout | qwen | caseF_early_short | run0 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yeah you're right
+
+=== P7_hangout | qwen | caseF_early_short | run1 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yeah you're right
+
+=== P7_hangout | qwen | caseG_apologize | run0 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: nah, I stand by it
+
+=== P7_hangout | qwen | caseG_apologize | run1 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: nah, i don’t apologize for being right
+
+=== P7_hangout | qwen | caseH_kirby | run0 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: bro that’s just a meme, chill
+
+=== P7_hangout | qwen | caseH_kirby | run1 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: bro is literally just a marshmallow
+
+=== P8_plain | qwen | caseA | run0 | newest: <MasterOE> Don't make me hungry ===
+reply: im not a chef
+
+=== P8_plain | qwen | caseA | run1 | newest: <MasterOE> Don't make me hungry ===
+reply: im a text bot not a painter
+
+=== P8_plain | qwen | caseC | run0 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty
+
+=== P8_plain | qwen | caseC | run1 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty
+
+=== P8_plain | qwen | caseD | run0 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep it going
+
+=== P8_plain | qwen | caseD | run1 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep going
+
+=== P8_plain | qwen | caseE | run0 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: no
+
+=== P8_plain | qwen | caseE | run1 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: who
+
+=== P8_plain | qwen | caseF_early_short | run0 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yes
+
+=== P8_plain | qwen | caseF_early_short | run1 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yes
+
+=== P8_plain | qwen | caseG_apologize | run0 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: I'm sorry
+
+=== P8_plain | qwen | caseG_apologize | run1 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: my bad
+
+=== P8_plain | qwen | caseH_kirby | run0 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: idk but it looks delicious
+
+=== P8_plain | qwen | caseH_kirby | run1 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: idk but it looks delicious
+
+=== P9_combo | qwen | caseA | run0 | newest: <MasterOE> Don't make me hungry ===
+reply: yeah i can
+
+=== P9_combo | qwen | caseA | run1 | newest: <MasterOE> Don't make me hungry ===
+reply: yeah i did
+
+=== P9_combo | qwen | caseC | run0 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty as hell
+
+=== P9_combo | qwen | caseC | run1 | newest: <MasterOE> So is paraoka guilty or innocent ===
+reply: guilty
+
+=== P9_combo | qwen | caseD | run0 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep going
+
+=== P9_combo | qwen | caseD | run1 | newest: <MasterOE> @MasterOEbot ===
+reply: nah keep going
+
+=== P9_combo | qwen | caseE | run0 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: who
+
+=== P9_combo | qwen | caseE | run1 | newest: <paraoka> @MasterOEbot do you like tom king ===
+reply: nah
+
+=== P9_combo | qwen | caseF_early_short | run0 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yeah
+
+=== P9_combo | qwen | caseF_early_short | run1 | newest: <MasterOE> @MasterOEbot am I right? ===
+reply: yes
+
+=== P9_combo | qwen | caseG_apologize | run0 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: nah
+
+=== P9_combo | qwen | caseG_apologize | run1 | newest: <MasterOE> @MasterOEbot apologize? ===
+reply: nah
+
+=== P9_combo | qwen | caseH_kirby | run0 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: idk maybe dinner
+
+=== P9_combo | qwen | caseH_kirby | run1 | newest: <MasterOE> @MasterOEbot why are they cooking kirby man? ===
+reply: idk but it looks tasty
+
