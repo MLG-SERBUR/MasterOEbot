@@ -14,6 +14,7 @@ import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 import com.masteroebot.markov.RoundRobinGenerativeAiResponder;
+import com.masteroebot.feedback.FeedbackCommandListener;
 import com.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
@@ -107,6 +108,7 @@ public class BotMain {
         final BootResult finalBoot = boot;
         Connect4CommandListener listener = boot.listener();
         TypeRacerCommandListener typeracerListener = boot.typeracerListener();
+        FeedbackCommandListener feedbackListener = boot.feedbackListener();
         JDA jda = boot.jda();
         listener.setMarkovAvailable(markovAvailable);
         // Single updateCommands() call: each updateCommands() replaces ALL
@@ -114,6 +116,7 @@ public class BotMain {
         net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction commandUpdater = jda.updateCommands();
         listener.registerCommands(commandUpdater);
         typeracerListener.registerCommands(commandUpdater);
+        feedbackListener.registerCommands(commandUpdater);
         commandUpdater.queue(
                 success -> System.out.println("Registered slash commands."),
                 error -> System.err.println("Slash command registration failed. " + error.getMessage())
@@ -137,6 +140,7 @@ public class BotMain {
         Connect4CommandListener listener =
                 new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
         TypeRacerCommandListener typeracerListener = new TypeRacerCommandListener(enableMessageContent);
+        FeedbackCommandListener feedbackListener = new FeedbackCommandListener();
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
@@ -145,7 +149,7 @@ public class BotMain {
 
         StartupProbe probe = new StartupProbe();
         JDABuilder builder = JDABuilder.createDefault(token)
-                .addEventListeners(listener, typeracerListener, probe);
+                .addEventListeners(listener, typeracerListener, feedbackListener, probe);
 
         if (markovListener != null) {
             builder.addEventListeners(markovListener);
@@ -175,10 +179,10 @@ public class BotMain {
             markovListener.setJDA(jda);
         }
 
-        return new BootResult(jda, listener, typeracerListener, markovListener);
+        return new BootResult(jda, listener, typeracerListener, feedbackListener, markovListener);
     }
 
-    private record BootResult(JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, MarkovListener markovListener) {
+    private record BootResult(JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {
