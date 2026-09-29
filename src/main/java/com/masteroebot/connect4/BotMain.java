@@ -140,7 +140,7 @@ public class BotMain {
         Connect4CommandListener listener =
                 new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
         TypeRacerCommandListener typeracerListener = new TypeRacerCommandListener(enableMessageContent);
-        FeedbackCommandListener feedbackListener = new FeedbackCommandListener();
+        FeedbackCommandListener feedbackListener = new FeedbackCommandListener(markovManager);
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {

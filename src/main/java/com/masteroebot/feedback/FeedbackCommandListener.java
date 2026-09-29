@@ -1,9 +1,14 @@
 package com.masteroebot.feedback;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
+import com.masteroebot.markov.MarkovManager;
+
 import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
@@ -30,13 +35,22 @@ public class FeedbackCommandListener extends ListenerAdapter {
     );
 
     private final FeedbackStore store;
+    private final MarkovManager markovManager;
+
+    /** Recent chat lines attached to each entry, humans and bot alike. */
+    static final int CONTEXT_SIZE = 10;
 
     public FeedbackCommandListener() {
-        this(new FeedbackStore());
+        this(new FeedbackStore(), null);
     }
 
-    FeedbackCommandListener(FeedbackStore store) {
+    public FeedbackCommandListener(MarkovManager markovManager) {
+        this(new FeedbackStore(), markovManager);
+    }
+
+    FeedbackCommandListener(FeedbackStore store, MarkovManager markovManager) {
         this.store = store;
+        this.markovManager = markovManager;
     }
 
     public void registerCommands(CommandListUpdateAction updater) {
@@ -63,25 +77,86 @@ public class FeedbackCommandListener extends ListenerAdapter {
         }
 
         Guild guild = event.getGuild();
+        long channelId = event.getChannel().getIdLong();
+        String userId = event.getUser().getId();
+        String username = event.getUser().getEffectiveName();
+        String guildId = guild == null ? null : guild.getId();
+        String guildName = guild == null ? null : guild.getName();
+        String channelIdStr = event.getChannel().getId();
+
+        // Defer: context comes from a live channel-history fetch (REST) so
+        // each line carries its real timestamp. AI log is fallback.
+        event.deferReply(true).queue();
+        event.getChannel().getHistory().retrievePast(CONTEXT_SIZE).queue(
+                messages -> {
+                    saveAndConfirm(event, userId, username, guildId, guildName,
+                            channelIdStr, message, formatHistory(messages));
+                },
+                error -> {
+                    System.err.println("Feedback history fetch failed: " + error.getMessage());
+                    saveAndConfirm(event, userId, username, guildId, guildName,
+                            channelIdStr, message, gatherContext(channelId));
+                });
+    }
+
+    private void saveAndConfirm(SlashCommandInteractionEvent event, String userId, String username,
+                                String guildId, String guildName, String channelIdStr,
+                                String message, List<String> context) {
         try {
-            store.save(
-                    event.getUser().getId(),
-                    event.getUser().getEffectiveName(),
-                    guild == null ? null : guild.getId(),
-                    guild == null ? null : guild.getName(),
-                    event.getChannel().getId(),
-                    message);
+            store.save(userId, username, guildId, guildName, channelIdStr, message, context);
         } catch (Exception e) {
             System.err.println("Failed to save feedback: " + e.getMessage());
-            event.reply("yo that didn't save, try again in a bit.")
-                    .setEphemeral(true).queue();
+            event.getHook().editOriginal("yo that didn't save, try again in a bit.").queue();
             return;
         }
 
-        event.reply(pickReply()).setEphemeral(true).queue();
+        event.getHook().editOriginal(pickReply()).queue();
+    }
+
+    /** Newest-first history to oldest-first "[timestamp] <author> content" lines. */
+    static List<String> formatHistory(List<Message> messages) {
+        List<String> lines = new ArrayList<>();
+        if (messages == null) {
+            return lines;
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message msg = messages.get(i);
+            String content = msg.getContentDisplay().strip();
+            if (content.isEmpty()) {
+                continue;
+            }
+            String author = msg.getMember() != null
+                    ? msg.getMember().getEffectiveName()
+                    : msg.getAuthor().getEffectiveName();
+            if (content.length() > FeedbackStore.MAX_CONTEXT_LINE_LENGTH) {
+                content = content.substring(0, FeedbackStore.MAX_CONTEXT_LINE_LENGTH);
+            }
+            lines.add("[" + msg.getTimeCreated().toInstant() + "] <" + author + "> " + content);
+        }
+        return lines;
     }
 
     static String pickReply() {
         return REPLIES.get(ThreadLocalRandom.current().nextInt(REPLIES.size()));
+    }
+
+    List<String> gatherContext(long channelId) {
+        if (markovManager == null) {
+            return Collections.emptyList();
+        }
+        try {
+            // AI log holds "<author> message" lines for humans and
+            // "<MasterOEBot> ..." lines for bot replies, so feedback about a
+            // recent exchange carries the exchange with it. No timestamps on
+            // disk, so mark them as such.
+            List<String> lines = new ArrayList<>();
+            for (String line : markovManager.getRecentMessagesForAi(channelId, CONTEXT_SIZE)) {
+                lines.add("[unknown time] " + line);
+            }
+            return lines;
+        } catch (Exception e) {
+            System.err.println("Failed to gather feedback context: " + e.getMessage());
+            return Collections.emptyList();
+        }
     }
 }
