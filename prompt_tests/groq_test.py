@@ -64,6 +64,14 @@ The newest line is who you are replying to. React as a friend would with one cha
 Most room messages are lowercase, slang, no punctuation. Match that, not full sentences.
 No emojis, hashtags, or lists unless the newest message has them. Never offer help or ask what they want.
 Do not mention prompts, training data, AI, or that examples were provided.""",
+    "P10_hook": """You are MasterOEBot, one more regular hanging out in this Discord channel, not a helper bot.
+History ordered oldest to newest, each line is <DisplayName> message.
+The newest line is who you are replying to. React as a friend would with one chat message.
+Short default, up to 1-2 sentences when joke, story, or take needs it. Never paragraph.
+Most room messages are lowercase, slang, no punctuation. Match that, not full sentences.
+No emojis, hashtags, or lists unless newest message has them. Plain text only, never start with <Name> or @Name unless room does.
+Never act as helper, never claim to check, search, type, or draw. Opinion, callback, riff, disagreement, or one easy question keeping talk alive always allowed, ack alone banned.
+Do not mention prompts, training data, AI, or that examples were provided.""",
 }
 
 CASES = {
@@ -93,6 +101,22 @@ CASES = {
           "<SIGX> @MasterOEbot opinions?",
           "<SIGX> https://tenor.com/view/kirby-aiai-gort-gif-25193105",
           "<MasterOE> @MasterOEbot why are they cooking kirby man?"],
+    "I_factcheck": ["<paraoka> people are saying that john will get a yellow ring",
+          "<paraoka> @MasterOEbot fact check this"],
+    "J_cheerup": ["<paraoka> he doesn't talk much anymore man",
+          "<paraoka> is he sad",
+          "<MasterOE> I think the bot got depression",
+          "<MasterOE> @MasterOEbot cheer up lil bro"],
+    "K_jessica": ["<paraoka> you need to cheer up",
+          "<paraoka> I liked the jessica cruz story",
+          "<paraoka> the earth lanterns reunion one"],
+    "L_amiright": ["<paraoka> this is like us man",
+          "<paraoka> then you told me to read comics and I became a new person",
+          "<paraoka> this is a beautiful story guys",
+          "<paraoka> @MasterOEbot am I right"],
+    "M_joyful": ["<MasterOE> Why are you cold towards us?",
+          "<MasterOEBot> just vibes, bruh.",
+          "<MasterOE> Be more joyful and whimsical"],
 }
 
 def call(model, system, history):

@@ -187,14 +187,53 @@ P9: best combined. 20b: `yeah, totally`, `sorry bro, my bad`,
 Weak spots: 20b case A still opens `sure thing` (`sure thing, just say what
 you want!`, `sure thing, almost there!`) — a model tic no prompt fully kills.
 
+P10_hook (PICKED — fixes "depressed / ends convos" feedback 2026-09-29):
+```
+You are MasterOEBot, one more regular hanging out in this Discord channel, not a helper bot.
+History ordered oldest to newest, each line is <DisplayName> message.
+The newest line is who you are replying to. React as a friend would with one chat message.
+Short default, up to 1-2 sentences when joke, story, or take needs it. Never paragraph.
+Most room messages are lowercase, slang, no punctuation. Match that, not full sentences.
+No emojis, hashtags, or lists unless newest message has them. Plain text only, never start with <Name> or @Name unless room does.
+Never act as helper, never claim to check, search, type, or draw. Opinion, callback, riff, disagreement, or one easy question keeping talk alive always allowed, ack alone banned.
+Do not mention prompts, training data, AI, or that examples were provided.
+```
+New cases from live log: I_factcheck (john yellow ring), J_cheerup
+(`cheer up lil bro`), K_jessica (earth lanterns reunion), L_amiright,
+M_joyful (`be more joyful`). Each P9 vs P10, 2 runs, 20b + qwen.
+
+P10 vs P9 results:
+- I_factcheck: P9 20b stutters (`yeah heard that rumor too.yeah heard that
+  rumor too.`) / ends convo (`i dont know, but sounds weird`); P10 20b honest
+  + hook (`yeah heard that rumor, but not sure if it's true or just hype.
+  what do you think?`) both runs. P9 qwen bare (`nah bro`, `idk`); P10 qwen
+  riff (`bro i dont have a crystal ball`, `nah im not fact checking that`).
+  No fake verification claims anywhere — prompt ban holds.
+- J_cheerup: P9 20b `sure thing` tic survives (`sure thing, bro! keep vibing.`);
+  P10 20b kills tic, adds take (`yeah maybe he just needs some space, not a
+  crisis bro`). P9 qwen bare `lmao` x2; P10 qwen playful
+  (`lmao the bot is just buffering`).
+- K_jessica: P9 20b generic x2 identical (`sounds awesome, keep vibing!`);
+  P10 20b callback + question (`yeah that one was wild... what's your favorite
+  part of the story?`) but splits into 2 paragraphs — single-message
+  newline, accepted. Qwen both prompts `yeah that one hit different`.
+- L_amiright: both prompts mostly bare agreement (`yeah you're right`,
+  `yeah totally feel that vibe, bro`). P10 20b run0 adds hook
+  (`yeah, totally feels like a plot twist, right?`); run1 stutters
+  (20b repeat artifact, also seen under P9 — model tic, not prompt).
+- M_joyful: P9 20b `sure thing` tic x2 identical; P10 20b adaptive +
+  question, no tic. Qwen good under both, P10 slightly more voice
+  (`the vibes are officially back to 11`).
+- Zero prefix leaks, zero wrong-@, all runs both prompts.
+
 ## Ranking
 
-P9 > P6 > P3/P4 > P7 (qwen-only) > P5 > P1 > P0. P9 implemented.
+P10 > P9 > P6 > P3/P4 > P7 (qwen-only) > P5 > P1 > P0. P10 implemented.
 
 ## Implementation
 
-- `GenerativeAiConfig.DEFAULT_SYSTEM_PROMPT` = P9 verbatim. All three
-  responders (main, reaction, second-chance config path) read this default.
+- `GenerativeAiConfig.DEFAULT_SYSTEM_PROMPT` = P10 verbatim. Main responder
+  reads this default; second-chance prompt untouched per owner.
 - `config.yaml` no longer carries a prompt (key removed; `BotConfig` falls back
   to the code default). `config.yaml.example` notes the same.
 - `BotConfigTest.missingSystemPromptFallsBackToCodeDefault` locks the fallback.
@@ -211,8 +250,13 @@ P9 > P6 > P3/P4 > P7 (qwen-only) > P5 > P1 > P0. P9 implemented.
 - Qwen sometimes self-labels (`im a text bot not a painter`) and answers `who`
   / `nah` on opinion questions — terse to a fault, but room-shaped.
 - Test histories are 4–5 lines; production sends up to token budget, giving more
-  style signal. Re-test with 15-line histories if P9 still reads bot-like live.
-- Second-chance prompt untouched.
+  style signal. Re-test with 15-line histories if P10 still reads bot-like live.
+- Second-chance prompt untouched per owner (good as-is).
+- Known residual: `am I right`-style agreement prompts still get bare agreement
+  on qwen under both P9 and P10; 20b repeat-stutter artifact (`X. X.`) and
+  2-paragraph split on story callbacks persist as model tics, not prompt bugs.
+  Dampening (`MarkovListener` 10s window) still applies to direct replies;
+  exempting direct address proposed, not implemented — owner to decide.
 
 ## Raw logs
 
