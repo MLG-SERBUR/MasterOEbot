@@ -8,10 +8,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import com.masteroebot.markov.GenerativeAiRequest;
-import com.masteroebot.markov.GenerativeAiResponder;
 import com.masteroebot.markov.MarkovConfig;
-import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 
 import net.dv8tion.jda.api.entities.Message;
@@ -33,7 +30,6 @@ public class Connect4CommandListener extends ListenerAdapter {
     private final AtomicInteger nextGameId = new AtomicInteger(1);
     private final MarkovManager markovManager;
     private final MarkovConfig markovConfig;
-    private final GenerativeAiResponder generativeAiResponder;
     private final com.masteroebot.markov.MarkovPollHandler pollHandler;
     private boolean markovAvailable = false;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
@@ -42,20 +38,13 @@ public class Connect4CommandListener extends ListenerAdapter {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = null;
         this.markovConfig = null;
-        this.generativeAiResponder = null;
         this.pollHandler = null;
     }
 
     public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager, MarkovConfig markovConfig) {
-        this(prefixFallbackEnabled, markovManager, markovConfig, null);
-    }
-
-    public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager,
-                                   MarkovConfig markovConfig, GenerativeAiResponder generativeAiResponder) {
         this.prefixFallbackEnabled = prefixFallbackEnabled;
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
-        this.generativeAiResponder = generativeAiResponder;
         this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager, markovConfig);
     }
 
@@ -65,8 +54,9 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     public void registerCommands(CommandListUpdateAction updater) {
         // NOTE: Do not call queue() here. BotMain combines all listeners'
-        // commands into a single updateCommands() action, because each
+        // commands into a single updateCommands() action per bot, because each
         // updateCommands() call replaces all global commands.
+        // MasterOEBot-only set; other bots register through BotCommandRegistrar.
         updater.addCommands(
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
@@ -82,11 +72,6 @@ public class Connect4CommandListener extends ListenerAdapter {
                                 new SubcommandData("poll", "Create a markov generated poll")
                                         .addOption(OptionType.STRING, "word", "Optional seed word", false)
                         ),
-                Commands.slash("master", "MasterOEbot diagnostics")
-                        .addSubcommands(
-                                new SubcommandData("iqtest", "Test a raw AI response")
-                                        .addOption(OptionType.STRING, "prompt", "Optional chat message appended to the AI prompt", false)
-                        ),
                 Commands.slash("remind", "Set a reminder")
                         .addOption(OptionType.STRING, "time", "Time duration (e.g. 10m, 1h, 30s)", true)
                         .addOption(OptionType.STRING, "message", "What to remind you about", true)
@@ -95,7 +80,7 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"master".equals(event.getName()) && !"remind".equals(event.getName())) {
+        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"remind".equals(event.getName())) {
             return;
         }
 
@@ -106,10 +91,6 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         if ("markov".equals(event.getName())) {
             handleMarkovCommand(event);
-            return;
-        }
-        if ("master".equals(event.getName())) {
-            handleMasterCommand(event);
             return;
         }
 
@@ -191,45 +172,6 @@ public class Connect4CommandListener extends ListenerAdapter {
         }
     }
 
-    private void handleMasterCommand(SlashCommandInteractionEvent event) {
-        if (!"iqtest".equals(event.getSubcommandName())) {
-            event.reply("Unknown subcommand.").setEphemeral(true).queue();
-            return;
-        }
-        if (!event.isFromGuild()) {
-            event.reply("This command can only be used in a server.").setEphemeral(true).queue();
-            return;
-        }
-        if (markovManager == null || generativeAiResponder == null) {
-            event.reply("AI test is not available.").setEphemeral(true).queue();
-            return;
-        }
-
-        long channelId = event.getChannel().getIdLong();
-        markovManager.loadBrain(channelId);
-        String systemPrompt = null;
-        if (generativeAiResponder instanceof com.masteroebot.markov.RoundRobinGenerativeAiResponder rr) {
-            systemPrompt = rr.getSystemPrompt();
-        }
-        List<String> recentMessages = new java.util.ArrayList<>(markovManager.getRecentMessagesForAiUntilTokenBudget(channelId, MarkovListener.gatherBudgetFor(generativeAiResponder), systemPrompt));
-        OptionMapping promptOption = event.getOption("prompt");
-        if (promptOption != null && !promptOption.getAsString().isBlank()) {
-            recentMessages.add(promptOption.getAsString().trim());
-        }
-
-        event.deferReply(true).queue(hook -> generativeAiResponder.generateReply(new GenerativeAiRequest(recentMessages))
-                .whenComplete((reply, error) -> {
-                    if (error != null) {
-                        hook.editOriginal("AI request failed:\n" + error).setAllowedMentions(java.util.Collections.emptyList()).queue();
-                        return;
-                    }
-
-                    String header = "Prompt messages sent: " + recentMessages.size()
-                            + "\nRaw AI output:";
-                    sendEphemeralReply(hook, header + "\n" + (reply == null ? "" : reply));
-                }));
-    }
-
     private long parseDurationSeconds(String duration) {
         if (duration == null || duration.isBlank()) return -1;
         try {
@@ -265,14 +207,6 @@ public class Connect4CommandListener extends ListenerAdapter {
                     error -> System.err.println("Failed to send reminder: " + error.getMessage())
             );
         }, seconds, TimeUnit.SECONDS);
-    }
-
-    private void sendEphemeralReply(net.dv8tion.jda.api.interactions.InteractionHook hook, String text) {
-        String safeText = text == null || text.isEmpty() ? "(empty)" : text;
-        if (safeText.length() > 1950) {
-            safeText = safeText.substring(0, 1950) + "... (truncated)";
-        }
-        hook.editOriginal(safeText).setAllowedMentions(java.util.Collections.emptyList()).queue();
     }
 
     private void seedFromHistory(SlashCommandInteractionEvent event, long channelId) {

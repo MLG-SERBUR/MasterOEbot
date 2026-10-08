@@ -39,6 +39,11 @@ public class ArliAiReactionResponder implements GenerativeAiResponder {
         this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt(), coordinator);
     }
 
+    /** Per-bot variant: shared provider backend, own prompt from code. */
+    public ArliAiReactionResponder(GenerativeAiConfig config, ArliAiCoordinator coordinator, String systemPrompt) {
+        this(HttpClient.newHttpClient(), buildProviders(config), systemPrompt, coordinator);
+    }
+
     public ArliAiReactionResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
         this(client, providers, systemPrompt, null);
     }

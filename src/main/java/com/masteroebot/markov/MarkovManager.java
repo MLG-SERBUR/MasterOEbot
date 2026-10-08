@@ -4,6 +4,8 @@ import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
+import com.masteroebot.bot.BotRegistry;
+
 public class MarkovManager {
     private static final Path DEFAULT_BRAIN_DIR = Paths.get("data/markov");
     public static final String BOT_MESSAGE_PREFIX = "<MasterOEBot> ";
@@ -117,11 +119,16 @@ public class MarkovManager {
     }
 
     public synchronized void appendBotMessageToAiLog(long channelId, String message) {
+        appendBotMessageToAiLog(channelId, message, BOT_MESSAGE_PREFIX);
+    }
+
+    /** Per-bot variant: tags the line with this bot's prefix in the shared log. */
+    public synchronized void appendBotMessageToAiLog(long channelId, String message, String botPrefix) {
         if (message == null || message.trim().isEmpty()) return;
         String trimmed = stripBotPrefix(message.trim());
         if (trimmed.isEmpty()) return;
         if (ProfanityFilter.containsProfanity(trimmed)) return;
-        appendLine(channelId, BOT_MESSAGE_PREFIX + trimmed, getAiLogPath(channelId), "AI log");
+        appendLine(channelId, normalizePrefix(botPrefix) + trimmed, getAiLogPath(channelId), "AI log");
     }
 
     /**
@@ -147,20 +154,51 @@ public class MarkovManager {
     }
 
     public synchronized void appendBotMessageToChatLog(long channelId, String message) {
+        appendBotMessageToChatLog(channelId, message, BOT_MESSAGE_PREFIX);
+    }
+
+    /** Per-bot variant: tags the line with this bot's prefix in the shared log. */
+    public synchronized void appendBotMessageToChatLog(long channelId, String message, String botPrefix) {
         if (message == null || message.trim().isEmpty()) return;
         String trimmed = stripBotPrefix(message.trim());
         if (trimmed.isEmpty()) return;
         if (ProfanityFilter.containsProfanity(trimmed)) return;
         ensureChatLogInitialized(channelId);
-        appendLine(channelId, BOT_MESSAGE_PREFIX + trimmed, getChatLogPath(channelId), "chat log");
+        appendLine(channelId, normalizePrefix(botPrefix) + trimmed, getChatLogPath(channelId), "chat log");
+    }
+
+    static String normalizePrefix(String botPrefix) {
+        if (botPrefix == null || botPrefix.isBlank()) {
+            return BOT_MESSAGE_PREFIX;
+        }
+        String trimmed = botPrefix.trim();
+        if (!trimmed.startsWith("<")) {
+            trimmed = "<" + trimmed;
+        }
+        if (!trimmed.endsWith(">")) {
+            int end = trimmed.indexOf('>');
+            trimmed = end == -1 ? trimmed + ">" : trimmed.substring(0, end + 1);
+        }
+        return trimmed + " ";
     }
 
     /**
-     * Canonical bot log prefix only ({@code <MasterOEBot>}). Used for scrub
-     * detection. {@code <MasterOE>} is a human username — never scrub.
+     * Canonical bot log prefixes (every known bot tag). Used for scrub
+     * detection. Human lookalikes such as {@code <MasterOE>} never match —
+     * only exact known tags do.
      */
     public static boolean isBotPrefix(String text) {
-        return startsWithTag(text, BOT_MESSAGE_TAG);
+        return isBotPrefix(text, BotRegistry.ALL_TAGS);
+    }
+
+    public static boolean isBotPrefix(String text, java.util.Collection<String> knownTags) {
+        if (text == null || knownTags == null) return false;
+        for (String tag : knownTags) {
+            if (tag != null && startsWithTag(text, tag.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean startsWithTag(String text, String tag) {
@@ -411,6 +449,11 @@ public class MarkovManager {
     }
 
     public synchronized void scrubAiLog(long channelId) {
+        scrubAiLog(channelId, BotRegistry.ALL_TAGS);
+    }
+
+    /** Shared-log variant: scrubs lines from any known bot tag. */
+    public synchronized void scrubAiLog(long channelId, java.util.Collection<String> knownTags) {
         Path path = getAiLogPath(channelId);
         if (!Files.exists(path)) return;
 
@@ -423,7 +466,7 @@ public class MarkovManager {
             for (String line : lines) {
                 String trimmed = line.trim();
                 if (trimmed.startsWith("<") && trimmed.contains("> ")) {
-                    inBotMessage = isBotPrefix(trimmed);
+                    inBotMessage = isBotPrefix(trimmed, knownTags);
                 }
 
                 if (inBotMessage) {

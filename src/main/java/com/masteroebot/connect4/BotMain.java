@@ -2,14 +2,22 @@ package com.masteroebot.connect4;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import javax.security.auth.login.LoginException;
 
+import com.masteroebot.bot.BotCommandRegistrar;
+import com.masteroebot.bot.BotProfile;
+import com.masteroebot.bot.BotRegistry;
+import com.masteroebot.bot.DiscordTokens;
+import com.masteroebot.bot.DumcordTokens;
 import com.masteroebot.markov.ArliAiCoordinator;
 import com.masteroebot.markov.ArliAiReactionResponder;
 import com.masteroebot.markov.ArliAiSecondChanceResponder;
+import com.masteroebot.markov.GenerativeAiConfig;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
@@ -59,97 +67,142 @@ public class BotMain {
             return;
         }
         Path configPath = Path.of("config.yaml");
-        BotConfig config = BotConfig.load(configPath);
+        DumcordTokens dumcord = DumcordTokens.load(Path.of("dumcord.yml"));
+
+        List<BotProfile> profiles = BotRegistry.PROFILES;
+        List<String> tokens = new ArrayList<>();
+        GenerativeAiConfig aiConfig;
+        if (!dumcord.isEmpty()) {
+            aiConfig = BotConfig.loadGenerativeAiConfig(configPath);
+            for (BotProfile profile : profiles) {
+                tokens.add(dumcord.tokenFor(profile.key()));
+            }
+        } else {
+            // Legacy fallback for pre-dumcord deploys: config.yaml primary
+            // token + discord.yaml extras.
+            System.err.println("dumcord.yml not found or empty, falling back to config.yaml/discord.yaml.");
+            BotConfig config = BotConfig.load(configPath);
+            aiConfig = config.generativeAiConfig();
+            tokens.add(config.token());
+            tokens.addAll(DiscordTokens.loadExtraTokens(Path.of("discord.yaml")));
+            while (tokens.size() < profiles.size()) {
+                tokens.add(null);
+            }
+        }
 
         MarkovConfig markovConfig = new MarkovConfig();
         markovConfig.load();
         MarkovManager markovManager = new MarkovManager(markovConfig);
 
-        RoundRobinGenerativeAiResponder generativeAiResponder =
-                new RoundRobinGenerativeAiResponder(config.generativeAiConfig());
+        // Shared backend: one coordinator serializes ArliAI use across bots.
         ArliAiCoordinator coordinator = new ArliAiCoordinator();
-        ArliAiReactionResponder reactionResponder =
-                new ArliAiReactionResponder(config.generativeAiConfig(), coordinator);
-        ArliAiSecondChanceResponder secondChanceResponder =
-                new ArliAiSecondChanceResponder(config.generativeAiConfig(), coordinator);
-        System.out.println("Loaded system prompt: " + config.generativeAiConfig().systemPrompt());
 
         // Retry startup so a transient outage (e.g. DNS not reachable yet right
         // after boot) doesn't take the bot down for good. Network errors surface
         // here as runtime exceptions (JDA wraps UnknownHostException in
         // ErrorResponseException). InterruptedException is never retried.
-        BootResult boot = null;
+        List<BootResult> online = new ArrayList<>();
         final int maxAttempts = 5;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                boot = startBot(config.token(), true, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
-                break;
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw ie;
-            } catch (LoginException | RuntimeException e) {
-                if (attempt >= maxAttempts) {
-                    throw e;
-                }
-                System.err.println("Startup attempt " + attempt + "/" + maxAttempts + " failed: " + e);
-                System.err.println("Retrying in 15 seconds...");
-                Thread.sleep(15_000);
+        for (int i = 0; i < profiles.size(); i++) {
+            BotProfile profile = profiles.get(i);
+            String token = tokens.get(i);
+            if (token == null || token.isBlank()) {
+                System.out.println("[" + profile.displayName() + "] No token configured, disabled.");
+                continue;
             }
-        }
-        boolean markovAvailable = (boot != null && boot.markovListener() != null);
 
-        if (boot == null) {
-            // DISALLOWED_INTENTS: retrying with MESSAGE_CONTENT enabled is
-            // pointless, so this second attempt is not retried on failure.
-            boot = startBot(config.token(), false, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
-            markovAvailable = false;
+            // Per-bot voice, shared provider backend (keys/models from ai.yaml).
+            RoundRobinGenerativeAiResponder generativeAiResponder =
+                    new RoundRobinGenerativeAiResponder(aiConfig, profile.systemPrompt());
+            ArliAiReactionResponder reactionResponder =
+                    new ArliAiReactionResponder(aiConfig, coordinator, profile.reactionPrompt());
+            ArliAiSecondChanceResponder secondChanceResponder =
+                    new ArliAiSecondChanceResponder(aiConfig, coordinator, profile.secondChancePrompt());
+            System.out.println("[" + profile.displayName() + "] Loaded system prompt (" + profile.systemPrompt().length() + " chars).");
+
+            BootResult boot = null;
+            boolean markovAvailable = false;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    boot = startBot(profile, token, true, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
+                    break;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw ie;
+                } catch (LoginException | RuntimeException e) {
+                    if (attempt >= maxAttempts) {
+                        System.err.println("[" + profile.displayName() + "] Startup failed after " + maxAttempts + " attempts, skipping: " + e);
+                        break;
+                    }
+                    System.err.println("[" + profile.displayName() + "] Startup attempt " + attempt + "/" + maxAttempts + " failed: " + e);
+                    System.err.println("Retrying in 15 seconds...");
+                    Thread.sleep(15_000);
+                }
+            }
+            if (boot == null) {
+                // DISALLOWED_INTENTS: retrying with MESSAGE_CONTENT enabled is
+                // pointless, so this second attempt is not retried on failure.
+                // A failed bot is skipped so the others still come online.
+                try {
+                    boot = startBot(profile, token, false, markovManager, markovConfig, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
+                } catch (LoginException | RuntimeException e) {
+                    System.err.println("[" + profile.displayName() + "] Startup without MESSAGE_CONTENT failed, skipping: " + e);
+                    continue;
+                }
+                markovAvailable = false;
+            } else {
+                markovAvailable = boot.markovListener() != null;
+            }
+
+            if (boot.listener() != null) {
+                boot.listener().setMarkovAvailable(markovAvailable);
+            }
+            BotCommandRegistrar.registerForBot(profile, boot.jda(), boot.listener(), boot.typeracerListener(), boot.feedbackListener());
+            online.add(boot);
+            System.out.println("[" + profile.displayName() + "] is online. Markov available: " + markovAvailable);
         }
 
-        final BootResult finalBoot = boot;
-        Connect4CommandListener listener = boot.listener();
-        TypeRacerCommandListener typeracerListener = boot.typeracerListener();
-        FeedbackCommandListener feedbackListener = boot.feedbackListener();
-        JDA jda = boot.jda();
-        listener.setMarkovAvailable(markovAvailable);
-        // Single updateCommands() call: each updateCommands() replaces ALL
-        // global commands, so registering listeners separately wipes others.
-        net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction commandUpdater = jda.updateCommands();
-        listener.registerCommands(commandUpdater);
-        typeracerListener.registerCommands(commandUpdater);
-        feedbackListener.registerCommands(commandUpdater);
-        commandUpdater.queue(
-                success -> System.out.println("Registered slash commands."),
-                error -> System.err.println("Slash command registration failed. " + error.getMessage())
-        );
-        System.out.println("Connect4 bot is online.");
+        if (online.isEmpty()) {
+            throw new IllegalStateException("No bots came online.");
+        }
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (finalBoot.markovListener() != null) {
-                finalBoot.markovListener().shutdown();
+            for (BootResult boot : online) {
+                if (boot.markovListener() != null) {
+                    boot.markovListener().shutdown();
+                }
             }
         }));
     }
 
-    private static BootResult startBot(String token, boolean enableMessageContent,
+    private static BootResult startBot(BotProfile profile, String token, boolean enableMessageContent,
                                        MarkovManager markovManager, MarkovConfig markovConfig,
                                        RoundRobinGenerativeAiResponder generativeAiResponder,
                                        ArliAiReactionResponder reactionResponder,
                                        ArliAiSecondChanceResponder secondChanceResponder,
                                        ArliAiCoordinator coordinator)
             throws LoginException, InterruptedException {
-        Connect4CommandListener listener =
-                new Connect4CommandListener(enableMessageContent, markovManager, markovConfig, generativeAiResponder);
-        TypeRacerCommandListener typeracerListener = new TypeRacerCommandListener(enableMessageContent);
-        FeedbackCommandListener feedbackListener = new FeedbackCommandListener(markovManager);
+        Connect4CommandListener listener = null;
+        TypeRacerCommandListener typeracerListener = null;
+        FeedbackCommandListener feedbackListener = null;
+        if (profile.registersCommands()) {
+            listener = new Connect4CommandListener(enableMessageContent, markovManager, markovConfig);
+            typeracerListener = new TypeRacerCommandListener(enableMessageContent);
+            feedbackListener = new FeedbackCommandListener(markovManager);
+        }
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
-            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator);
+            markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
+                    profile.botTag(), profile.reactionPrompt());
         }
 
         StartupProbe probe = new StartupProbe();
         JDABuilder builder = JDABuilder.createDefault(token)
-                .addEventListeners(listener, typeracerListener, feedbackListener, probe);
+                .addEventListeners(probe);
+        if (listener != null) {
+            builder.addEventListeners(listener, typeracerListener, feedbackListener);
+        }
 
         if (markovListener != null) {
             builder.addEventListeners(markovListener);
@@ -164,7 +217,7 @@ public class BotMain {
 
         if (outcome == StartupOutcome.DISALLOWED_INTENTS && enableMessageContent) {
             jda.shutdownNow();
-            System.err.println("MESSAGE_CONTENT denied by Discord. Markov feature disabled, other features remain active.");
+            System.err.println("[" + profile.displayName() + "] MESSAGE_CONTENT denied by Discord. Markov feature disabled, other features remain active.");
             return null;
         }
 
@@ -179,10 +232,10 @@ public class BotMain {
             markovListener.setJDA(jda);
         }
 
-        return new BootResult(jda, listener, typeracerListener, feedbackListener, markovListener);
+        return new BootResult(profile, jda, listener, typeracerListener, feedbackListener, markovListener);
     }
 
-    private record BootResult(JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
+    private record BootResult(BotProfile profile, JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {

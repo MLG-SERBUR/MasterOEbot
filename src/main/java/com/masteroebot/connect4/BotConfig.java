@@ -40,8 +40,41 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
             aiData = normalizeAiData(data);
         }
 
+        return new BotConfig(token, buildGenerativeAiConfig(aiData));
+    }
+
+    /**
+     * AI backend config without requiring a bot token. Used when tokens come
+     * from dumcord.yml; {@code config.yaml} is then only an ai.yaml fallback.
+     */
+    public static GenerativeAiConfig loadGenerativeAiConfig(Path path) throws IOException {
+        Map<String, Object> data = Map.of();
+        if (Files.exists(path)) {
+            data = loadYamlMap(path);
+            if (data == null) {
+                data = Map.of();
+            }
+        }
+
+        Path aiPath = path.resolveSibling("ai.yaml");
+        Map<String, Object> aiData = data;
+        if (Files.exists(aiPath)) {
+            Map<String, Object> loaded = loadYamlMap(aiPath);
+            if (loaded != null && !loaded.isEmpty()) {
+                aiData = normalizeAiData(loaded);
+            } else {
+                aiData = normalizeAiData(Map.of());
+            }
+        } else {
+            aiData = normalizeAiData(data);
+        }
+
+        return buildGenerativeAiConfig(aiData);
+    }
+
+    private static GenerativeAiConfig buildGenerativeAiConfig(Map<String, Object> aiData) {
         GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
-        GenerativeAiConfig generativeAiConfig = new GenerativeAiConfig(
+        return new GenerativeAiConfig(
                 readString(aiData, "ai.systemPrompt", defaults.systemPrompt()),
                 readString(aiData, "ai.secondChanceSystemPrompt", defaults.secondChanceSystemPrompt()),
                 readString(aiData, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
@@ -65,8 +98,6 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
                 readStringList(aiData, "ai.ollamaModels", defaults.ollamaModels()),
                 readStringList(aiData, "ai.sambaNovaModels", defaults.sambaNovaModels()),
                 readStringList(aiData, "ai.arliModels", defaults.arliModels()));
-
-        return new BotConfig(token, generativeAiConfig);
     }
 
     @SuppressWarnings("unchecked")

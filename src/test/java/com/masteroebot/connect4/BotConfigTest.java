@@ -102,6 +102,16 @@ class BotConfigTest {
     }
 
     @Test
+    void aiConfigLoadsWithoutConfigYaml() throws IOException {
+        Files.writeString(tempDir.resolve("ai.yaml"), """
+                ai:
+                  groqApiKey: "gk"
+                """);
+        GenerativeAiConfig ai = BotConfig.loadGenerativeAiConfig(tempDir.resolve("config.yaml"));
+        assertEquals("gk", ai.groqApiKey());
+    }
+
+    @Test
     void realSplitConfigLoads() {
         Path configPath = Path.of("config.yaml");
         Path aiPath = Path.of("ai.yaml");

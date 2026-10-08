@@ -11,8 +11,8 @@
 .DS_Store
 
 # Runtime/config secrets
-config.yaml
 ai.yaml
+dumcord.yml
 /.codex
 /.codex/
 token_calibration.json

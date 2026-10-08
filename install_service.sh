@@ -29,10 +29,10 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# 2. Check for config.yaml and ai.yaml
-if [ ! -f "config.yaml" ]; then
-    echo -e "${RED}Error: config.yaml not found in the current directory.${NC}"
-    echo "Please create config.yaml from config.yaml.example before running this installer."
+# 2. Check for ai.yaml and bot tokens (dumcord.yml)
+if [ ! -f "dumcord.yml" ]; then
+    echo -e "${RED}Error: dumcord.yml not found in the current directory.${NC}"
+    echo "Please create dumcord.yml from dumcord.yml.example before running this installer."
     exit 1
 fi
 

@@ -41,6 +41,11 @@ public class ArliAiSecondChanceResponder implements GenerativeAiResponder {
         this(HttpClient.newHttpClient(), buildProviders(config), config.secondChanceSystemPrompt(), coordinator);
     }
 
+    /** Per-bot variant: shared provider backend, own follow-up prompt from code. */
+    public ArliAiSecondChanceResponder(GenerativeAiConfig config, ArliAiCoordinator coordinator, String systemPrompt) {
+        this(HttpClient.newHttpClient(), buildProviders(config), systemPrompt, coordinator);
+    }
+
     public ArliAiSecondChanceResponder(HttpClient client, List<Provider> providers, String systemPrompt) {
         this(client, providers, systemPrompt, null);
     }

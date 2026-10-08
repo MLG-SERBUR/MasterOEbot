@@ -1,5 +1,6 @@
 package com.masteroebot.markov;
 
+import com.masteroebot.bot.BotRegistry;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Guild;
@@ -33,6 +34,9 @@ public class MarkovListener extends ListenerAdapter {
     private final GenerativeAiResponder reactionResponder;
     private final GenerativeAiResponder secondChanceResponder;
     private final ArliAiCoordinator coordinator;
+    private final String botTag;
+    private final String botDisplayName;
+    private final String reactionPrompt;
     private JDA jda;
     private final Random rand = new Random();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -87,6 +91,12 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator) {
+        this(manager, config, jda, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
+                BotRegistry.MASTER.botTag(), BotRegistry.MASTER.reactionPrompt());
+    }
+
+    /** Per-bot variant: own log tag and reaction prompt, shared backend. */
+    public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator, String botTag, String reactionPrompt) {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
@@ -94,6 +104,13 @@ public class MarkovListener extends ListenerAdapter {
         this.reactionResponder = reactionResponder;
         this.secondChanceResponder = secondChanceResponder;
         this.coordinator = coordinator;
+        String normalizedTag = (botTag == null || botTag.isBlank()) ? BotRegistry.MASTER.botTag() : botTag;
+        this.botTag = normalizedTag.endsWith(" ") ? normalizedTag : normalizedTag + " ";
+        String stripped = this.botTag.trim();
+        this.botDisplayName = (stripped.startsWith("<") && stripped.endsWith(">")
+                ? stripped.substring(1, stripped.length() - 1) : stripped);
+        this.reactionPrompt = (reactionPrompt == null || reactionPrompt.isBlank())
+                ? BotRegistry.MASTER.reactionPrompt() : reactionPrompt;
         this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
         startStartupTimers();
     }
@@ -338,7 +355,7 @@ public class MarkovListener extends ListenerAdapter {
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
                             stopTyping(typingTasks);
-                            manager.appendBotMessageToChatLog(channelId, reply);
+                            manager.appendBotMessageToChatLog(channelId, reply, botTag);
                             channelsNeedingScrub.add(channelId);
                             if (allowSecondReply) {
                                 scheduleSecondReply(event, channelId, content);
@@ -365,14 +382,14 @@ public class MarkovListener extends ListenerAdapter {
 
         if (referencedMessage != null && !recentMessages.isEmpty()) {
             String referencedContent = MarkovUtils.getDisplayNameContent(referencedMessage);
-            String formattedReferenced = "<MasterOEBot> " + referencedContent;
+            String formattedReferenced = botTag + referencedContent;
 
             boolean isReferencingLastMessage = recentMessages.size() >= 2
                     && recentMessages.get(recentMessages.size() - 2).equals(formattedReferenced);
 
             if (!isReferencingLastMessage) {
                 String currentMessageLine = recentMessages.get(recentMessages.size() - 1);
-                String context = "(replying to MasterOEBot: \"" + referencedContent + "\") ";
+                String context = "(replying to " + botDisplayName + ": \"" + referencedContent + "\") ";
 
                 int tagEnd = currentMessageLine.indexOf("> ");
                 if (tagEnd != -1) {
@@ -527,7 +544,7 @@ public class MarkovListener extends ListenerAdapter {
 
         if (candidatesById.isEmpty()) return;
 
-        GenerativeAiRequest request = new GenerativeAiRequest(promptLines, REACTION_AI_SYSTEM_PROMPT);
+        GenerativeAiRequest request = new GenerativeAiRequest(promptLines, reactionPrompt);
         GenerativeAiResponder responderToUse = reactionResponder != null ? reactionResponder : generativeAiResponder;
         CompletableFuture<String> reactionFuture;
         try {
@@ -720,7 +737,7 @@ public class MarkovListener extends ListenerAdapter {
                                         .setAllowedMentions(Collections.emptyList())
                                         .queue(success -> {
                                             stopTyping(fallbackTyping);
-                                            manager.appendBotMessageToChatLog(channelId, fallbackReply);
+                                            manager.appendBotMessageToChatLog(channelId, fallbackReply, botTag);
                                             channelsNeedingScrub.add(channelId);
                                         }, err -> stopTyping(fallbackTyping));
                             }, delaySeconds, TimeUnit.SECONDS);
@@ -760,7 +777,7 @@ public class MarkovListener extends ListenerAdapter {
                         .setAllowedMentions(Collections.emptyList())
                         .queue(success -> {
                             stopTyping(typingTasks);
-                            manager.appendBotMessageToChatLog(channelId, secondReply);
+                            manager.appendBotMessageToChatLog(channelId, secondReply, botTag);
                             channelsNeedingScrub.add(channelId);
                         }, error -> stopTyping(typingTasks));
             }, delaySeconds, TimeUnit.SECONDS);
@@ -768,8 +785,8 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void trackAiMessage(long channelId, String message) {
-        manager.appendBotMessageToAiLog(channelId, message);
-        manager.appendBotMessageToChatLog(channelId, message);
+        manager.appendBotMessageToAiLog(channelId, message, botTag);
+        manager.appendBotMessageToChatLog(channelId, message, botTag);
         channelsNeedingScrub.add(channelId);
     }
 
@@ -798,8 +815,8 @@ public class MarkovListener extends ListenerAdapter {
                 String content = MarkovUtils.getDisplayNameContent(msg).trim();
                 if (!content.isEmpty() && !ProfanityFilter.containsProfanity(content)) {
                     if (msg.getAuthor().getIdLong() == jda.getSelfUser().getIdLong()) {
-                        manager.appendBotMessageToAiLog(channelId, content);
-                        manager.appendBotMessageToChatLog(channelId, content);
+                        manager.appendBotMessageToAiLog(channelId, content, botTag);
+                        manager.appendBotMessageToChatLog(channelId, content, botTag);
                         channelsNeedingScrub.add(channelId);
                     } else {
                         String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();

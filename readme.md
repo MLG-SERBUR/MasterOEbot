@@ -10,17 +10,19 @@ A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback 
 ## Configuration
 1. Copy the example files:
    ```bash
-   cp config.yaml.example config.yaml
+   cp dumcord.yml.example dumcord.yml
    cp ai.yaml.example ai.yaml
    ```
-2. Edit `config.yaml` and set your bot token:
+2. Edit `dumcord.yml` and set your bot tokens:
    ```yaml
-   discord:
-     token: "YOUR_REAL_BOT_TOKEN"
+   bots:
+     master: "YOUR_MASTER_BOT_TOKEN"
+     paraoka: "YOUR_PARAOKA_BOT_TOKEN"
    ```
+   A missing entry disables that bot without affecting the others.
 3. Edit `ai.yaml` and set your AI provider keys and models.
 
-> Never commit `config.yaml` or `ai.yaml` with real secrets.
+> Never commit `dumcord.yml` or `ai.yaml` with real secrets.
 
 AI replies use configured providers round-robin. Keys can live in `ai.yaml` or env vars:
 `CEREBRAS_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`.
@@ -59,7 +61,7 @@ java -jar target/masteroebot-1.0.0.jar
 
 ## Systemd Service
 To install and run the bot in the background automatically:
-1. Ensure your `config.yaml` and `ai.yaml` are configured.
+1. Ensure your `dumcord.yml` and `ai.yaml` are configured.
 2. Run `./install_service.sh`.
 3. To view logs: `journalctl --user -u masteroebot -f`.
 4. To stop and uninstall: `./uninstall_service.sh`.
