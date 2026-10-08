@@ -17,47 +17,72 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
             throw new IllegalStateException("Missing config file: " + path + " (copy config.yaml.example to config.yaml)");
         }
 
+        Map<String, Object> data = loadYamlMap(path);
+        if (data == null || data.isEmpty()) {
+            throw new IllegalStateException("Config file is empty: " + path);
+        }
+
+        String token = readString(data, "discord.token");
+        if (token == null || token.isBlank() || "PUT_YOUR_BOT_TOKEN_HERE".equals(token)) {
+            throw new IllegalStateException("Please set discord.token in " + path);
+        }
+
+        Path aiPath = path.resolveSibling("ai.yaml");
+        Map<String, Object> aiData = data;
+        if (Files.exists(aiPath)) {
+            Map<String, Object> loaded = loadYamlMap(aiPath);
+            if (loaded != null && !loaded.isEmpty()) {
+                aiData = normalizeAiData(loaded);
+            } else {
+                aiData = normalizeAiData(Map.of());
+            }
+        } else {
+            aiData = normalizeAiData(data);
+        }
+
+        GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
+        GenerativeAiConfig generativeAiConfig = new GenerativeAiConfig(
+                readString(aiData, "ai.systemPrompt", defaults.systemPrompt()),
+                readString(aiData, "ai.secondChanceSystemPrompt", defaults.secondChanceSystemPrompt()),
+                readString(aiData, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
+                readString(aiData, "ai.groqApiKey", defaults.groqApiKey()),
+                readString(aiData, "ai.openrouterApiKey", defaults.openrouterApiKey()),
+                readString(aiData, "ai.geminiApiKey", defaults.geminiApiKey()),
+                readString(aiData, "ai.mistralApiKey", defaults.mistralApiKey()),
+                readString(aiData, "ai.zaiApiKey", defaults.zaiApiKey()),
+                readString(aiData, "ai.cloudflareApiKey", defaults.cloudflareApiKey()),
+                readString(aiData, "ai.cloudflareAccountId", defaults.cloudflareAccountId()),
+                readString(aiData, "ai.ollamaApiKey", defaults.ollamaApiKey()),
+                readString(aiData, "ai.sambaNovaApiKey", defaults.sambaNovaApiKey()),
+                readString(aiData, "ai.arliApiKey", defaults.arliApiKey()),
+                readStringListWithLegacy(aiData, "ai.cerebrasModels", "ai.cerebrasModel", defaults.cerebrasModels()),
+                readStringListWithLegacy(aiData, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
+                readStringList(aiData, "ai.openrouterModels", defaults.openrouterModels()),
+                readStringList(aiData, "ai.geminiModels", defaults.geminiModels()),
+                readStringList(aiData, "ai.mistralModels", defaults.mistralModels()),
+                readStringList(aiData, "ai.zaiModels", defaults.zaiModels()),
+                readStringList(aiData, "ai.cloudflareModels", defaults.cloudflareModels()),
+                readStringList(aiData, "ai.ollamaModels", defaults.ollamaModels()),
+                readStringList(aiData, "ai.sambaNovaModels", defaults.sambaNovaModels()),
+                readStringList(aiData, "ai.arliModels", defaults.arliModels()));
+
+        return new BotConfig(token, generativeAiConfig);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> loadYamlMap(Path path) throws IOException {
         Yaml yaml = new Yaml();
         try (InputStream in = Files.newInputStream(path)) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> data = yaml.loadAs(in, Map.class);
-            if (data == null || data.isEmpty()) {
-                throw new IllegalStateException("Config file is empty: " + path);
-            }
-
-            String token = readString(data, "discord.token");
-            if (token == null || token.isBlank() || "PUT_YOUR_BOT_TOKEN_HERE".equals(token)) {
-                throw new IllegalStateException("Please set discord.token in " + path);
-            }
-
-            GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
-            GenerativeAiConfig generativeAiConfig = new GenerativeAiConfig(
-                    readString(data, "ai.systemPrompt", defaults.systemPrompt()),
-                    readString(data, "ai.secondChanceSystemPrompt", defaults.secondChanceSystemPrompt()),
-                    readString(data, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
-                    readString(data, "ai.groqApiKey", defaults.groqApiKey()),
-                    readString(data, "ai.openrouterApiKey", defaults.openrouterApiKey()),
-                    readString(data, "ai.geminiApiKey", defaults.geminiApiKey()),
-                    readString(data, "ai.mistralApiKey", defaults.mistralApiKey()),
-                    readString(data, "ai.zaiApiKey", defaults.zaiApiKey()),
-                    readString(data, "ai.cloudflareApiKey", defaults.cloudflareApiKey()),
-                    readString(data, "ai.cloudflareAccountId", defaults.cloudflareAccountId()),
-                    readString(data, "ai.ollamaApiKey", defaults.ollamaApiKey()),
-                    readString(data, "ai.sambaNovaApiKey", defaults.sambaNovaApiKey()),
-                    readString(data, "ai.arliApiKey", defaults.arliApiKey()),
-                    readStringListWithLegacy(data, "ai.cerebrasModels", "ai.cerebrasModel", defaults.cerebrasModels()),
-                    readStringListWithLegacy(data, "ai.groqModels", "ai.groqModel", defaults.groqModels()),
-                    readStringList(data, "ai.openrouterModels", defaults.openrouterModels()),
-                    readStringList(data, "ai.geminiModels", defaults.geminiModels()),
-                    readStringList(data, "ai.mistralModels", defaults.mistralModels()),
-                    readStringList(data, "ai.zaiModels", defaults.zaiModels()),
-                    readStringList(data, "ai.cloudflareModels", defaults.cloudflareModels()),
-                    readStringList(data, "ai.ollamaModels", defaults.ollamaModels()),
-                    readStringList(data, "ai.sambaNovaModels", defaults.sambaNovaModels()),
-                    readStringList(data, "ai.arliModels", defaults.arliModels()));
-
-            return new BotConfig(token, generativeAiConfig);
+            Map<String, Object> map = yaml.loadAs(in, Map.class);
+            return map == null ? Map.of() : map;
         }
+    }
+
+    private static Map<String, Object> normalizeAiData(Map<String, Object> raw) {
+        if (raw.containsKey("ai")) {
+            return raw;
+        }
+        return Map.of("ai", raw);
     }
 
     private static String readString(Map<String, Object> map, String dottedPath, String defaultValue) {

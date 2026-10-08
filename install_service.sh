@@ -29,10 +29,16 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# 2. Check for config.yaml
+# 2. Check for config.yaml and ai.yaml
 if [ ! -f "config.yaml" ]; then
     echo -e "${RED}Error: config.yaml not found in the current directory.${NC}"
     echo "Please create config.yaml from config.yaml.example before running this installer."
+    exit 1
+fi
+
+if [ ! -f "ai.yaml" ]; then
+    echo -e "${RED}Error: ai.yaml not found in the current directory.${NC}"
+    echo "Please create ai.yaml from ai.yaml.example before running this installer."
     exit 1
 fi
 

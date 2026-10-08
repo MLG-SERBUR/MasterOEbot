@@ -79,4 +79,41 @@ class BotConfigTest {
 
         assertEquals("custom follow-up", config.generativeAiConfig().secondChanceSystemPrompt());
     }
+
+    @Test
+    void aiYamlTakesPrecedenceOverConfigFallback() throws IOException {
+        Path configPath = writeConfig("""
+                    groqApiKey: "from-config"
+                    groqModels:
+                      - "from-config-model"
+                """);
+        Files.writeString(configPath.resolveSibling("ai.yaml"), """
+                ai:
+                  groqApiKey: "from-ai-file"
+                  groqModels:
+                    - "from-ai-model"
+                """);
+
+        BotConfig config = BotConfig.load(configPath);
+
+        assertEquals("test-token", config.token());
+        assertEquals("from-ai-file", config.generativeAiConfig().groqApiKey());
+        assertEquals(List.of("from-ai-model"), config.generativeAiConfig().groqModels());
+    }
+
+    @Test
+    void realSplitConfigLoads() {
+        Path configPath = Path.of("config.yaml");
+        Path aiPath = Path.of("ai.yaml");
+        if (!java.nio.file.Files.exists(configPath) || !java.nio.file.Files.exists(aiPath)) {
+            return;
+        }
+        try {
+            BotConfig config = BotConfig.load(configPath);
+            org.junit.jupiter.api.Assertions.assertNotNull(config.token());
+            org.junit.jupiter.api.Assertions.assertNotNull(config.generativeAiConfig().groqApiKey());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
