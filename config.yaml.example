@@ -1,5 +1,0 @@
-discord:
-  token: "PUT_YOUR_BOT_TOKEN_HERE"
-
-# AI providers live in ai.yaml (copy ai.yaml.example to ai.yaml).
-# An `ai:` section here is still read as fallback when ai.yaml is missing.

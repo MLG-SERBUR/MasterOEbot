@@ -69,6 +69,3 @@ ai:
     - "Meta-Llama-3.3-70B-Instruct"
   arliModels:
     - "Qwen3.5-27B-Derestricted"
-
-  # Reply prompts live in code (GenerativeAiConfig.DEFAULT_SYSTEM_PROMPT,
-  # DEFAULT_SECOND_CHANCE_SYSTEM_PROMPT), not in config.
