@@ -1,0 +1,302 @@
+package com.robomwm.ai.pfbots.masteroebot.poll;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.robomwm.ai.pfbots.markov.GenerativeAiRequest;
+import com.robomwm.ai.pfbots.markov.GenerativeAiResponder;
+import com.robomwm.ai.pfbots.markov.MarkovManager;
+
+import net.dv8tion.jda.api.entities.Message;
+import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
+import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.commands.OptionMapping;
+import net.dv8tion.jda.api.interactions.commands.OptionType;
+import net.dv8tion.jda.api.interactions.commands.build.Commands;
+import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
+import net.dv8tion.jda.api.utils.messages.MessagePollBuilder;
+import net.dv8tion.jda.api.utils.messages.MessagePollData;
+
+/**
+ * {@code /poll} for MasterOEBot. Takes one {@code prompt} arg describing what
+ * the poll should be about, pulls prior channel messages for context, and asks
+ * the shared AI backend once for the question, options, and duration.
+ */
+public class PollCommandListener extends ListenerAdapter {
+    /** System prompt in code, like the other bot prompts. Single AI call decides everything. */
+    static final String SYSTEM_PROMPT = """
+            You create a Discord poll from a user's poll request and recent channel chat.
+            Recent chat lines are ordered oldest to newest in the format [timestamp] <DisplayName> message. The last line is the poll request in the format Poll request: "...".
+            Use the request as the main topic. Use chat context only to sharpen wording and options (inside jokes, current topics, names). Never expose chat contents the request did not ask about.
+            Pick a short poll question (max 140 characters) and 2 to 10 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
+            Pick durationHours as an integer from 1 to 168 that fits the request (default 24 when the request says nothing). Honor any duration named in the request.
+            Return ONLY raw JSON, no markdown fences, no commentary, with exactly these keys:
+            {"question": "...", "options": ["...", "..."], "durationHours": 24}
+            """;
+
+    static final int CONTEXT_SIZE = 20;
+    static final int MAX_HISTORY_LINE_LENGTH = 300;
+    static final int MAX_QUESTION_LENGTH = 300;
+    static final int MAX_OPTION_LENGTH = 55;
+    static final int MAX_OPTIONS = 10;
+    static final int MIN_OPTIONS = 2;
+    static final int MIN_DURATION_HOURS = 1;
+    static final int MAX_DURATION_HOURS = 168;
+    static final int DEFAULT_DURATION_HOURS = 24;
+    static final int AI_TIMEOUT_SECONDS = 60;
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private final MarkovManager markovManager;
+    private final GenerativeAiResponder generativeAiResponder;
+
+    public PollCommandListener() {
+        this(null, null);
+    }
+
+    public PollCommandListener(MarkovManager markovManager, GenerativeAiResponder generativeAiResponder) {
+        this.markovManager = markovManager;
+        this.generativeAiResponder = generativeAiResponder;
+    }
+
+    public void registerCommands(CommandListUpdateAction updater) {
+        // NOTE: Do not call queue() here. BotMain combines all listeners'
+        // commands into a single updateCommands() action, because each
+        // updateCommands() call replaces all global commands.
+        updater.addCommands(
+                Commands.slash("poll", "Create an AI-generated poll from a prompt")
+                        .addOption(OptionType.STRING, "prompt", "What should the poll be about?", true));
+    }
+
+    @Override
+    public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
+        if (!"poll".equals(event.getName())) {
+            return;
+        }
+
+        OptionMapping promptOption = event.getOption("prompt");
+        String prompt = promptOption == null ? "" : promptOption.getAsString();
+        if (prompt == null || prompt.isBlank()) {
+            event.reply("Give me something to work with, prompt can't be empty.")
+                    .setEphemeral(true).queue();
+            return;
+        }
+        prompt = prompt.strip();
+
+        if (generativeAiResponder == null) {
+            event.reply("Poll generation is not available right now.").setEphemeral(true).queue();
+            return;
+        }
+
+        String finalPrompt = prompt;
+        long requesterId = event.getUser().getIdLong();
+        // Defer public: the AI call takes longer than the 3s interaction window.
+        event.deferReply(false).queue(
+                ignored -> event.getChannel().getHistory().retrievePast(CONTEXT_SIZE).queue(
+                        messages -> generateFromHistory(event, requesterId, finalPrompt, formatHistory(messages)),
+                        error -> {
+                            System.err.println("Poll history fetch failed: " + error.getMessage());
+                            generateFromHistory(event, requesterId, finalPrompt, gatherFallbackContext(event));
+                        }),
+                error -> System.err.println("Poll defer failed: " + error.getMessage()));
+    }
+
+    private void generateFromHistory(SlashCommandInteractionEvent event, long requesterId,
+            String prompt, List<String> history) {
+        List<String> aiMessages = new ArrayList<>(history);
+        aiMessages.add("Poll request: \"" + prompt + "\"");
+        GenerativeAiRequest request = new GenerativeAiRequest(aiMessages, SYSTEM_PROMPT);
+
+        try {
+            generativeAiResponder.generateReply(request)
+                    .orTimeout(AI_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .whenComplete((reply, error) -> {
+                        if (error != null) {
+                            Throwable cause = error.getCause() != null ? error.getCause() : error;
+                            System.err.println("Poll generation failed: " + cause);
+                            event.getHook().editOriginal("Couldn't generate that poll, try again in a bit.")
+                                    .queue(null, editError -> System.err.println("Poll error edit failed: " + editError.getMessage()));
+                            return;
+                        }
+                        PollSpec spec;
+                        try {
+                            spec = parsePollSpec(reply);
+                        } catch (IllegalArgumentException e) {
+                            System.err.println("Poll parse failed: " + e.getMessage());
+                            event.getHook().editOriginal("The AI returned an invalid poll, try again with a clearer prompt.")
+                                    .queue(null, editError -> System.err.println("Poll error edit failed: " + editError.getMessage()));
+                            return;
+                        }
+                        postPoll(event, requesterId, prompt, spec);
+                    });
+        } catch (Exception e) {
+            System.err.println("Poll generateReply threw: " + e);
+            event.getHook().editOriginal("Couldn't generate that poll, try again in a bit.").queue();
+        }
+    }
+
+    private void postPoll(SlashCommandInteractionEvent event, long requesterId, String prompt, PollSpec spec) {
+        MessagePollBuilder builder = new MessagePollBuilder(spec.question());
+        for (String option : spec.options()) {
+            builder.addAnswer(option);
+        }
+        builder.setDuration(spec.durationHours(), TimeUnit.HOURS);
+        MessagePollData poll;
+        try {
+            poll = builder.build();
+        } catch (Exception e) {
+            System.err.println("Poll build failed: " + e.getMessage());
+            event.getHook().editOriginal("Couldn't post that poll, try again in a bit.").queue();
+            return;
+        }
+
+        String content = "\uD83D\uDCCA <@" + requesterId + ">: " + prompt;
+        if (content.length() > 2000) {
+            content = content.substring(0, 2000);
+        }
+        event.getHook().sendMessage(content).setPoll(poll).queue(
+                sent -> event.getHook().deleteOriginal().queue(
+                        null,
+                        deleteError -> System.err.println("Poll thinking-message delete failed: " + deleteError.getMessage())),
+                sendError -> {
+                    System.err.println("Poll send failed: " + sendError.getMessage());
+                    event.getHook().editOriginal("Couldn't post that poll, try again in a bit.").queue();
+                });
+    }
+
+    private List<String> gatherFallbackContext(SlashCommandInteractionEvent event) {
+        if (markovManager == null) {
+            return List.of();
+        }
+        try {
+            return new ArrayList<>(markovManager.getRecentMessagesForAi(
+                    event.getChannel().getIdLong(), CONTEXT_SIZE));
+        } catch (Exception e) {
+            System.err.println("Poll fallback context failed: " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Newest-first history to oldest-first "[timestamp] <author> content" lines. */
+    static List<String> formatHistory(List<Message> messages) {
+        List<String> lines = new ArrayList<>();
+        if (messages == null) {
+            return lines;
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message msg = messages.get(i);
+            String content = msg.getContentDisplay().strip();
+            if (content.isEmpty()) {
+                continue;
+            }
+            String author = msg.getMember() != null
+                    ? msg.getMember().getEffectiveName()
+                    : msg.getAuthor().getEffectiveName();
+            if (content.length() > MAX_HISTORY_LINE_LENGTH) {
+                content = content.substring(0, MAX_HISTORY_LINE_LENGTH);
+            }
+            lines.add("[" + msg.getTimeCreated().toInstant() + "] <" + author + "> " + content);
+        }
+        return lines;
+    }
+
+    /** Parse and validate the single AI response into a postable poll spec. */
+    static PollSpec parsePollSpec(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("Empty poll response");
+        }
+        String json = stripCodeFences(raw).strip();
+        int start = json.indexOf('{');
+        int end = json.lastIndexOf('}');
+        if (start == -1 || end == -1 || end <= start) {
+            throw new IllegalArgumentException("No JSON object in poll response");
+        }
+        JsonNode root;
+        try {
+            root = MAPPER.readTree(json.substring(start, end + 1));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid poll JSON: " + e.getMessage(), e);
+        }
+
+        String question = root.has("question") ? root.get("question").asText("").strip() : "";
+        if (question.isEmpty()) {
+            throw new IllegalArgumentException("Poll JSON missing question");
+        }
+        if (question.length() > MAX_QUESTION_LENGTH) {
+            question = question.substring(0, MAX_QUESTION_LENGTH);
+        }
+
+        JsonNode optionsNode = root.get("options");
+        if (optionsNode == null || !optionsNode.isArray() || optionsNode.size() < MIN_OPTIONS) {
+            throw new IllegalArgumentException("Poll JSON needs at least " + MIN_OPTIONS + " options");
+        }
+        Map<String, String> deduped = new LinkedHashMap<>();
+        for (JsonNode optionNode : optionsNode) {
+            String option = optionNode.asText("").strip();
+            if (option.isEmpty()) {
+                continue;
+            }
+            if (option.length() > MAX_OPTION_LENGTH) {
+                option = option.substring(0, MAX_OPTION_LENGTH);
+            }
+            deduped.putIfAbsent(option.toLowerCase(), option);
+            if (deduped.size() >= MAX_OPTIONS) {
+                break;
+            }
+        }
+        List<String> options = new ArrayList<>(deduped.values());
+        if (options.size() < MIN_OPTIONS) {
+            throw new IllegalArgumentException("Poll JSON needs at least " + MIN_OPTIONS + " distinct options");
+        }
+
+        int durationHours = DEFAULT_DURATION_HOURS;
+        JsonNode durationNode = firstPresent(root, "durationHours", "duration_hours", "duration");
+        if (durationNode != null && durationNode.canConvertToInt()) {
+            durationHours = durationNode.asInt(DEFAULT_DURATION_HOURS);
+        } else if (durationNode != null && durationNode.isTextual()) {
+            try {
+                durationHours = Integer.parseInt(durationNode.asText("").strip());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (durationHours < MIN_DURATION_HOURS) {
+            durationHours = MIN_DURATION_HOURS;
+        } else if (durationHours > MAX_DURATION_HOURS) {
+            durationHours = MAX_DURATION_HOURS;
+        }
+
+        return new PollSpec(question, List.copyOf(options), durationHours);
+    }
+
+    private static JsonNode firstPresent(JsonNode root, String... names) {
+        for (String name : names) {
+            if (root.has(name)) {
+                return root.get(name);
+            }
+        }
+        return null;
+    }
+
+    private static String stripCodeFences(String raw) {
+        String stripped = raw.strip();
+        if (stripped.startsWith("```")) {
+            int firstNewline = stripped.indexOf('\n');
+            int lastFence = stripped.lastIndexOf("```");
+            if (firstNewline != -1 && lastFence > firstNewline) {
+                return stripped.substring(firstNewline + 1, lastFence);
+            }
+            if (lastFence > 3) {
+                return stripped.substring(3, lastFence);
+            }
+        }
+        return stripped;
+    }
+
+    record PollSpec(String question, List<String> options, int durationHours) {
+    }
+}

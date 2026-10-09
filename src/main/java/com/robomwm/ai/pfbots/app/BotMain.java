@@ -27,6 +27,7 @@ import com.robomwm.ai.pfbots.masteroebot.connect4.Connect4CommandListener;
 import com.robomwm.ai.pfbots.masteroebot.feedback.FeedbackCommandListener;
 import com.robomwm.ai.pfbots.paraokabot.ParaokaBotCommands;
 import com.robomwm.ai.pfbots.paraokabot.ParaokaCommandListener;
+import com.robomwm.ai.pfbots.masteroebot.poll.PollCommandListener;
 import com.robomwm.ai.pfbots.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
@@ -164,7 +165,7 @@ public class BotMain {
             if (isParaoka(profile)) {
                 ParaokaBotCommands.registerForBot(profile.displayName(), boot.jda(), (ParaokaCommandListener) boot.listener());
             } else {
-                MasterOEBotCommands.registerForBot(profile, boot.jda(), (Connect4CommandListener) boot.listener(), boot.typeracerListener(), boot.feedbackListener());
+                MasterOEBotCommands.registerForBot(profile, boot.jda(), (Connect4CommandListener) boot.listener(), boot.typeracerListener(), boot.feedbackListener(), boot.pollListener());
             }
             online.add(boot);
             System.out.println("[" + profile.displayName() + "] is online. Markov available: " + markovAvailable);
@@ -198,6 +199,7 @@ public class BotMain {
         ListenerAdapter listener;
         TypeRacerCommandListener typeracerListener = null;
         FeedbackCommandListener feedbackListener = null;
+        PollCommandListener pollListener = null;
         if (isParaoka) {
             listener = new ParaokaCommandListener(markovManager, markovConfig);
         } else {
@@ -206,6 +208,7 @@ public class BotMain {
         if (profile.registersCommands() && !isParaoka) {
             typeracerListener = new TypeRacerCommandListener();
             feedbackListener = new FeedbackCommandListener(markovManager);
+            pollListener = new PollCommandListener(markovManager, generativeAiResponder);
         }
         MarkovListener markovListener = null;
 
@@ -218,8 +221,14 @@ public class BotMain {
         JDABuilder builder = JDABuilder.createDefault(token)
                 .addEventListeners(probe);
         builder.addEventListeners(listener);
-        if (typeracerListener != null && feedbackListener != null) {
-            builder.addEventListeners(typeracerListener, feedbackListener);
+        if (typeracerListener != null) {
+            builder.addEventListeners(typeracerListener);
+        }
+        if (feedbackListener != null) {
+            builder.addEventListeners(feedbackListener);
+        }
+        if (pollListener != null) {
+            builder.addEventListeners(pollListener);
         }
 
         if (markovListener != null) {
@@ -250,10 +259,10 @@ public class BotMain {
             markovListener.setJDA(jda);
         }
 
-        return new BootResult(profile, jda, listener, typeracerListener, feedbackListener, markovListener);
+        return new BootResult(profile, jda, listener, typeracerListener, feedbackListener, pollListener, markovListener);
     }
 
-    private record BootResult(BotProfile profile, JDA jda, ListenerAdapter listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
+    private record BootResult(BotProfile profile, JDA jda, ListenerAdapter listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, PollCommandListener pollListener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {
