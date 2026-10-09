@@ -1,6 +1,6 @@
-# MasterOEbot
+# pfbots
 
-A Java Discord bot implementing `/connect4` with JDA, plus `!connect4` fallback when slash commands are unavailable.
+Java Discord bots (MasterOEBot, paraokabot) with JDA. MasterOEBot implements `/connect4` with JDA, plus `!connect4` fallback when slash commands are unavailable.
 
 ## Requirements
 - Java 21+
@@ -56,14 +56,14 @@ Open the generated URL and install the bot to your server.
 ```bash
 mvn -q test
 mvn -q package
-java -jar target/masteroebot-1.0.0.jar
+java -jar target/pfbots-1.0.0.jar
 ```
 
 ## Systemd Service
 To install and run the bot in the background automatically:
 1. Ensure your `dumcord.yml` and `ai.yaml` are configured.
 2. Run `./install_service.sh`.
-3. To view logs: `journalctl --user -u masteroebot -f`.
+3. To view logs: `journalctl --user -u pfbots -f`.
 4. To stop and uninstall: `./uninstall_service.sh`.
 
 ## Command usage

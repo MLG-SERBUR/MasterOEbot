@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MasterOEbot Uninstallation Script
+# pfbots Uninstallation Script
 # This script removes the user systemd service.
 
 set -e
@@ -11,9 +11,9 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-SERVICE_NAME="masteroebot"
+SERVICE_NAME="pfbots"
 
-echo -e "${BLUE}=== MasterOEbot Uninstaller ===${NC}"
+echo -e "${BLUE}=== pfbots Uninstaller ===${NC}"
 
 # 1. Stop and disable the service
 if systemctl --user list-unit-files | grep -q "$SERVICE_NAME.service"; then

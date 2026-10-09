@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MasterOEbot Installation Script (user systemd service)
+# pfbots Installation Script (user systemd service)
 # This script builds the project and sets it up as a user systemd service.
 
 set -e
@@ -11,7 +11,7 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}=== MasterOEbot Installer ===${NC}"
+echo -e "${BLUE}=== pfbots Installer ===${NC}"
 
 # 1. Check requirements
 if ! command -v java &> /dev/null; then
@@ -46,14 +46,14 @@ fi
 echo -e "${BLUE}Building project with Maven...${NC}"
 mvn clean package
 
-JAR_FILE="target/masteroebot-1.0.0.jar"
+JAR_FILE="target/pfbots-1.0.0.jar"
 if [ ! -f "$JAR_FILE" ]; then
     echo -e "${RED}Error: JAR file not found at $JAR_FILE after build.${NC}"
     exit 1
 fi
 
 # 4. Prepare Service variables
-SERVICE_NAME="masteroebot"
+SERVICE_NAME="pfbots"
 USER_NAME=$(whoami)
 WORK_DIR=$(pwd)
 JAVA_BIN=$(which java)
@@ -64,7 +64,7 @@ echo -e "${BLUE}Configuring systemd service: $SERVICE_NAME...${NC}"
 
 # 5. Create the service file content
 SERVICE_CONTENT="[Unit]
-Description=MasterOEbot Service
+Description=pfbots Service
 Wants=network-online.target
 After=network-online.target
 
