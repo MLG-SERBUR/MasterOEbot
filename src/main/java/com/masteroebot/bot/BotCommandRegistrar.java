@@ -1,8 +1,8 @@
 package com.masteroebot.bot;
 
-import com.masteroebot.connect4.Connect4CommandListener;
-import com.masteroebot.feedback.FeedbackCommandListener;
-import com.masteroebot.typeracer.TypeRacerCommandListener;
+import com.masteroebot.masteroebot.connect4.Connect4CommandListener;
+import com.masteroebot.masteroebot.feedback.FeedbackCommandListener;
+import com.masteroebot.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;

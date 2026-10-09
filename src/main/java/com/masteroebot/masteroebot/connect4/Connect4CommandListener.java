@@ -1,4 +1,4 @@
-package com.masteroebot.connect4;
+package com.masteroebot.masteroebot.connect4;
 
 import java.util.List;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package com.masteroebot.connect4;
+package com.masteroebot.app;
 
 import com.masteroebot.markov.GenerativeAiConfig;
 import org.junit.jupiter.api.Test;

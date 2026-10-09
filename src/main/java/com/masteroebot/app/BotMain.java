@@ -1,4 +1,4 @@
-package com.masteroebot.connect4;
+package com.masteroebot.app;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -22,8 +22,9 @@ import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 import com.masteroebot.markov.RoundRobinGenerativeAiResponder;
-import com.masteroebot.feedback.FeedbackCommandListener;
-import com.masteroebot.typeracer.TypeRacerCommandListener;
+import com.masteroebot.masteroebot.connect4.Connect4CommandListener;
+import com.masteroebot.masteroebot.feedback.FeedbackCommandListener;
+import com.masteroebot.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;

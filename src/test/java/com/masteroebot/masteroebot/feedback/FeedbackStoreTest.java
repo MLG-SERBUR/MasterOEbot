@@ -1,4 +1,4 @@
-package com.masteroebot.feedback;
+package com.masteroebot.masteroebot.feedback;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

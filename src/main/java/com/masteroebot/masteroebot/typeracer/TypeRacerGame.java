@@ -1,4 +1,4 @@
-package com.masteroebot.typeracer;
+package com.masteroebot.masteroebot.typeracer;
 
 import java.util.ArrayList;
 import java.util.Collections;

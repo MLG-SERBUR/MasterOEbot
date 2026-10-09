@@ -1,4 +1,4 @@
-package com.masteroebot.feedback;
+package com.masteroebot.masteroebot.feedback;
 
 import java.util.ArrayList;
 import java.util.Collections;

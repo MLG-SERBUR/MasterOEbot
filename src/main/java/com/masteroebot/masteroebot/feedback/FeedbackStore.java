@@ -1,4 +1,4 @@
-package com.masteroebot.feedback;
+package com.masteroebot.masteroebot.feedback;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

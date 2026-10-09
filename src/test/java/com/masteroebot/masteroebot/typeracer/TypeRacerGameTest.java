@@ -1,4 +1,4 @@
-package com.masteroebot.typeracer;
+package com.masteroebot.masteroebot.typeracer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
