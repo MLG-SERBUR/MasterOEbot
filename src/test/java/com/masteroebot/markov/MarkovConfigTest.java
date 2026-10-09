@@ -18,10 +18,21 @@ class MarkovConfigTest {
     }
 
     @Test
-    void legacyEnabledChannelMigratesParaokaOn() {
+    void legacyEnabledChannelLeavesParaokaOff() {
         MarkovConfig config = new MarkovConfig();
         Properties props = new Properties();
         props.setProperty("123.enabled", "true");
+        config.applyProperties(props);
+        assertTrue(config.isEnabled(123L));
+        assertFalse(config.isParaokaEnabled(123L));
+    }
+
+    @Test
+    void explicitParaokaOnRespected() {
+        MarkovConfig config = new MarkovConfig();
+        Properties props = new Properties();
+        props.setProperty("123.enabled", "true");
+        props.setProperty("123.paraokaEnabled", "true");
         config.applyProperties(props);
         assertTrue(config.isEnabled(123L));
         assertTrue(config.isParaokaEnabled(123L));
@@ -39,13 +50,13 @@ class MarkovConfigTest {
     }
 
     @Test
-    void legacyBareKeyEnablesMasterAndMigratesParaoka() {
+    void legacyBareKeyEnablesMasterOnly() {
         MarkovConfig config = new MarkovConfig();
         Properties props = new Properties();
         props.setProperty("123", "true");
         config.applyProperties(props);
         assertTrue(config.isEnabled(123L));
-        assertTrue(config.isParaokaEnabled(123L));
+        assertFalse(config.isParaokaEnabled(123L));
     }
 
     @Test

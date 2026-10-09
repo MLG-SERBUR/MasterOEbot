@@ -33,9 +33,8 @@ public class MarkovConfig {
     }
 
     /**
-     * Parses stored keys into the toggle maps. Channels enabled under the
-     * legacy shared switch (no explicit paraoka key) keep paraokabot on, so
-     * the split changes nothing until someone toggles per bot.
+     * Parses stored keys into the toggle maps. paraokabot starts fresh: only
+     * explicit paraoka keys enable it, legacy master keys never carry over.
      */
     void applyProperties(Properties props) {
         for (String key : props.stringPropertyNames()) {
@@ -58,11 +57,6 @@ public class MarkovConfig {
                     channelToggles.put(channelId, enabled);
                 }
             } catch (NumberFormatException ignored) {}
-        }
-        for (Map.Entry<Long, Boolean> entry : channelToggles.entrySet()) {
-            if (entry.getValue() && !paraokaToggles.containsKey(entry.getKey())) {
-                paraokaToggles.put(entry.getKey(), true);
-            }
         }
     }
 
@@ -95,7 +89,7 @@ public class MarkovConfig {
         save();
     }
 
-    /** paraokabot enable for the channel. Defaults off; legacy enabled channels migrate on. */
+    /** paraokabot enable for the channel. Defaults off, no legacy carryover. */
     public boolean isParaokaEnabled(long channelId) {
         return paraokaToggles.getOrDefault(channelId, false);
     }
