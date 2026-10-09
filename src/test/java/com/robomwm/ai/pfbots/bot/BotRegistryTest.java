@@ -26,10 +26,12 @@ class BotRegistryTest {
 
     @Test
     void paraokaPromptsRenamed() {
-        assertTrue(BotRegistry.PARAOKA.systemPrompt().contains("paraokabot"));
+        assertTrue(BotRegistry.PARAOKA.systemPrompt().contains(BotProfile.BOT_NAME_VARIABLE));
+        assertTrue(BotRegistry.PARAOKA.resolvePrompt(BotRegistry.PARAOKA.systemPrompt(), null).contains("paraokabot"));
         assertFalse(BotRegistry.PARAOKA.systemPrompt().contains("MasterOEBot"));
         assertTrue(BotRegistry.PARAOKA.secondChancePrompt().contains("<paraokabot>"));
-        assertTrue(BotRegistry.PARAOKA.reactionPrompt().contains("paraokabot"));
+        assertTrue(BotRegistry.PARAOKA.reactionPrompt().contains(BotProfile.BOT_NAME_VARIABLE));
+        assertTrue(BotRegistry.PARAOKA.resolvePrompt(BotRegistry.PARAOKA.reactionPrompt(), null).contains("paraokabot"));
         assertEquals("<paraokabot> ", BotRegistry.PARAOKA.botTag());
     }
 
@@ -49,7 +51,18 @@ class BotRegistryTest {
             assertFalse(profile.reactionPrompt() == null || profile.reactionPrompt().isBlank(),
                     profile.key() + " must define reactionPrompt in code");
         }
-        assertTrue(BotRegistry.MasterOEBot.systemPrompt().contains("MasterOEBot"));
+        assertTrue(BotRegistry.MasterOEBot.systemPrompt().contains(BotProfile.BOT_NAME_VARIABLE));
+        assertTrue(BotRegistry.MasterOEBot.resolvePrompt(BotRegistry.MasterOEBot.systemPrompt(), null).contains("MasterOEBot"));
+    }
+
+    @Test
+    void promptVariableResolvesToLiveName() {
+        assertEquals("hi NewName bye",
+                BotRegistry.MasterOEBot.resolvePrompt("hi {{BOT_NAME}} bye", "NewName"));
+        assertEquals("hi MasterOEBot bye",
+                BotRegistry.MasterOEBot.resolvePrompt("hi {{BOT_NAME}} bye", null));
+        assertEquals("hi MasterOEBot bye",
+                BotRegistry.MasterOEBot.resolvePrompt("hi {{BOT_NAME}} bye", "  "));
     }
 
     @Test

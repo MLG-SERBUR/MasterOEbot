@@ -251,7 +251,7 @@ public class MarkovListener extends ListenerAdapter {
             }
         }
 
-        String botName = (jda != null && jda.getSelfUser() != null) ? jda.getSelfUser().getName().toLowerCase(Locale.ROOT) : "masteroebot";
+        String botName = liveBotDisplayName(event.getGuild()).toLowerCase(Locale.ROOT);
         String lowerContent = content.toLowerCase(Locale.ROOT);
 
         boolean isReplyToSelfSync = isReplyToSelf(message);
@@ -261,7 +261,7 @@ public class MarkovListener extends ListenerAdapter {
         // independent per bot.
         // NOTE: @everyone/@here counts as direct address for every bot, so a
         // mass ping makes both reply regardless of who else is mentioned.
-        boolean selfNamed = containsAny(lowerContent, selfIdentifiers(botName));
+        boolean selfNamed = containsAny(lowerContent, selfIdentifiers(event.getGuild()));
         boolean otherNamed = containsAny(lowerContent, otherIdentifiers());
         boolean mentionsSelf = isMentioningSelf(message);
         boolean mentionsOtherBot = isMentioningOtherBot(message);
@@ -430,7 +430,7 @@ public class MarkovListener extends ListenerAdapter {
 
         String systemPrompt = null;
         if (generativeAiResponder instanceof RoundRobinGenerativeAiResponder rr) {
-            systemPrompt = rr.getSystemPrompt();
+            systemPrompt = resolvePrompt(rr.getSystemPrompt(), event.getGuild());
         }
         List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, gatherBudgetFor(generativeAiResponder), systemPrompt);
 
@@ -443,7 +443,7 @@ public class MarkovListener extends ListenerAdapter {
 
             if (!isReferencingLastMessage) {
                 String currentMessageLine = recentMessages.get(recentMessages.size() - 1);
-                String context = "(replying to " + botDisplayName + ": \"" + referencedContent + "\") ";
+                String context = "(replying to " + liveBotDisplayName(event.getGuild()) + ": \"" + referencedContent + "\") ";
 
                 int tagEnd = currentMessageLine.indexOf("> ");
                 if (tagEnd != -1) {
@@ -455,7 +455,7 @@ public class MarkovListener extends ListenerAdapter {
             }
         }
 
-        GenerativeAiRequest request = new GenerativeAiRequest(recentMessages);
+        GenerativeAiRequest request = new GenerativeAiRequest(recentMessages, systemPrompt);
 
         CompletableFuture<String> replyFuture;
         try {
@@ -598,7 +598,7 @@ public class MarkovListener extends ListenerAdapter {
 
         if (candidatesById.isEmpty()) return;
 
-        GenerativeAiRequest request = new GenerativeAiRequest(promptLines, reactionPrompt);
+        GenerativeAiRequest request = new GenerativeAiRequest(promptLines, resolvePrompt(reactionPrompt, guildForChannel(channelId)));
         GenerativeAiResponder responderToUse = reactionResponder != null ? reactionResponder : generativeAiResponder;
         CompletableFuture<String> reactionFuture;
         try {
@@ -739,11 +739,11 @@ public class MarkovListener extends ListenerAdapter {
             // Determine system prompt for token budgeting (follow-up prompt for second chance)
             String systemPrompt = null;
             if (secondChanceResponder instanceof ArliAiSecondChanceResponder sc) {
-                systemPrompt = sc.getSystemPrompt();
+                systemPrompt = resolvePrompt(sc.getSystemPrompt(), event.getGuild());
             } else if (generativeAiResponder instanceof RoundRobinGenerativeAiResponder rr) {
-                systemPrompt = rr.getSystemPrompt();
+                systemPrompt = resolvePrompt(rr.getSystemPrompt(), event.getGuild());
             } else if (secondChanceResponder instanceof ArliAiReactionResponder ar) {
-                systemPrompt = ar.getSystemPrompt();
+                systemPrompt = resolvePrompt(ar.getSystemPrompt(), event.getGuild());
             }
             // Include as part of logs the first AI's response: fetch latest AI log at invocation time
             List<String> recentMessages = manager.getRecentMessagesForAiUntilTokenBudget(channelId, gatherBudgetFor(secondChanceResponder), systemPrompt);
@@ -961,15 +961,101 @@ public class MarkovListener extends ListenerAdapter {
         if (!v.isEmpty()) out.add(v);
     }
 
-    /** Name forms addressing this listener (profile names plus live username). */
-    private Set<String> selfIdentifiers(String liveBotNameLower) {
+    private Guild guildForChannel(long channelId) {
+        try {
+            if (jda != null) {
+                var channel = jda.getGuildChannelById(channelId);
+                if (channel != null) return channel.getGuild();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** Live Discord display name: guild nickname first, else global display, else username. */
+    String liveBotDisplayName(Guild guild) {
+        try {
+            if (guild != null && jda != null) {
+                var selfMember = guild.getSelfMember();
+                if (selfMember != null && selfMember.getEffectiveName() != null
+                        && !selfMember.getEffectiveName().isBlank()) {
+                    return selfMember.getEffectiveName();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            if (jda != null && jda.getSelfUser() != null) {
+                String effective = jda.getSelfUser().getEffectiveName();
+                if (effective != null && !effective.isBlank()) return effective;
+                String global = jda.getSelfUser().getGlobalName();
+                if (global != null && !global.isBlank()) return global;
+                String name = jda.getSelfUser().getName();
+                if (name != null && !name.isBlank()) return name;
+            }
+        } catch (Exception ignored) {
+        }
+        BotProfile profile = currentProfile();
+        if (profile != null && profile.displayName() != null && !profile.displayName().isBlank()) {
+            return profile.displayName();
+        }
+        return botDisplayName != null ? botDisplayName : "masteroebot";
+    }
+
+    /** All live name forms for mention filtering: username, global display, nickname. */
+    private Set<String> liveBotNameForms(Guild guild) {
+        Set<String> out = new HashSet<>();
+        try {
+            if (jda != null && jda.getSelfUser() != null) {
+                var self = jda.getSelfUser();
+                addLower(out, self.getName());
+                addLower(out, self.getGlobalName());
+                addLower(out, self.getEffectiveName());
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            if (guild != null) {
+                var selfMember = guild.getSelfMember();
+                if (selfMember != null) {
+                    addLower(out, selfMember.getNickname());
+                    addLower(out, selfMember.getEffectiveName());
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        addLower(out, liveBotDisplayName(guild));
+        return out;
+    }
+
+    private BotProfile currentProfile() {
+        for (BotProfile profile : BotRegistry.PROFILES) {
+            if (profile != null && profile.key() != null && profile.key().equals(botKey)) {
+                return profile;
+            }
+        }
+        return null;
+    }
+
+    /** Resolve {{BOT_NAME}} prompt variable with live display name. */
+    String resolvePrompt(String template, Guild guild) {
+        BotProfile profile = currentProfile();
+        String fallback = profile != null ? profile.displayName() : botDisplayName;
+        String live = liveBotDisplayName(guild);
+        if (template == null) return null;
+        if (profile != null) return profile.resolvePrompt(template, live);
+        return template.replace(BotProfile.BOT_NAME_VARIABLE, live != null ? live : fallback);
+    }
+
+    /** Name forms addressing this listener (profile names plus live JDA names). */
+    private Set<String> selfIdentifiers(Guild guild) {
         Set<String> out = new HashSet<>();
         for (BotProfile profile : BotRegistry.PROFILES) {
             if (profile != null && profile.key() != null && profile.key().equals(botKey)) {
                 addIdentifiers(out, profile);
             }
         }
-        addLower(out, liveBotNameLower);
+        out.addAll(liveBotNameForms(guild));
         try {
             if (botDisplayName != null) addLower(out, botDisplayName);
         } catch (Exception ignored) {
