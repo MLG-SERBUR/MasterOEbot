@@ -8,8 +8,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import com.masteroebot.bot.BotSlashCommands;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovManager;
+import com.masteroebot.markov.MarkovSeeder;
 
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
@@ -20,9 +22,7 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 
-public class Connect4CommandListener extends ListenerAdapter {
-    /** True when this listener serves paraokabot: only paraokabot commands, no games. */
-    private final boolean paraokaScope;
+public class Connect4CommandListener extends ListenerAdapter implements BotSlashCommands {
     private final Map<Long, Map<Integer, Connect4Game>> gamesByChannel = new ConcurrentHashMap<>();
     private final AtomicInteger nextGameId = new AtomicInteger(1);
     private final MarkovManager markovManager;
@@ -32,42 +32,27 @@ public class Connect4CommandListener extends ListenerAdapter {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     public Connect4CommandListener() {
-        this.paraokaScope = false;
         this.markovManager = null;
         this.markovConfig = null;
         this.pollHandler = null;
     }
 
     public Connect4CommandListener(MarkovManager markovManager, MarkovConfig markovConfig) {
-        this(markovManager, markovConfig, false);
-    }
-
-    public Connect4CommandListener(MarkovManager markovManager, MarkovConfig markovConfig, boolean paraokaScope) {
-        this.paraokaScope = paraokaScope;
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
         this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager, markovConfig);
     }
 
+    @Override
     public void setMarkovAvailable(boolean available) {
         this.markovAvailable = available;
     }
 
+    @Override
     public void registerCommands(CommandListUpdateAction updater) {
         // NOTE: Do not call queue() here. BotMain combines all listeners'
         // commands into a single updateCommands() action per bot, because each
         // updateCommands() call replaces all global commands.
-        // Each bot registers only its own commands on its own application.
-        if (paraokaScope) {
-            updater.addCommands(
-                    Commands.slash("paraokabot", "paraokabot chat feature")
-                            .addSubcommands(
-                                    new SubcommandData("toggle", "Toggle paraokabot on/off for this channel"),
-                                    new SubcommandData("status", "Check paraokabot status for this channel")
-                            )
-            );
-            return;
-        }
         updater.addCommands(
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
@@ -93,12 +78,6 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (paraokaScope) {
-            if ("paraokabot".equals(event.getName())) {
-                handleParaokaCommand(event);
-            }
-            return;
-        }
         if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"masteroebot".equals(event.getName()) && !"remind".equals(event.getName())) {
             return;
         }
@@ -154,7 +133,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             markovConfig.setEnabled(channelId, newState);
 
             if (newState && markovManager.isEmpty(channelId)) {
-                seedFromHistory(event, channelId);
+                MarkovSeeder.seedFromHistory(event, channelId, markovManager);
             }
 
             event.reply("MasterOEBot " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
@@ -176,39 +155,6 @@ public class Connect4CommandListener extends ListenerAdapter {
             if (pollHandler != null) {
                 pollHandler.handle(event);
             }
-        } else {
-            event.reply("Unknown subcommand.").setEphemeral(true).queue();
-        }
-    }
-
-    private void handleParaokaCommand(SlashCommandInteractionEvent event) {
-        if (!markovAvailable || markovManager == null || markovConfig == null) {
-            event.reply("Markov feature is not available (MESSAGE_CONTENT intent not granted).").setEphemeral(true).queue();
-            return;
-        }
-
-        if (!event.isFromGuild()) {
-            event.reply("This command can only be used in a server.").setEphemeral(true).queue();
-            return;
-        }
-
-        long channelId = event.getChannel().getIdLong();
-        String subcommand = event.getSubcommandName();
-
-        if ("toggle".equals(subcommand)) {
-            boolean current = markovConfig.isParaokaEnabled(channelId);
-            boolean newState = !current;
-            markovConfig.setParaokaEnabled(channelId, newState);
-
-            if (newState && markovManager.isEmpty(channelId)) {
-                seedFromHistory(event, channelId);
-            }
-
-            event.reply("paraokabot " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
-        } else if ("status".equals(subcommand)) {
-            boolean enabled = markovConfig.isParaokaEnabled(channelId);
-            event.reply("paraokabot is currently " + (enabled ? "enabled" : "disabled")
-                    + " for this channel.").setEphemeral(true).queue();
         } else {
             event.reply("Unknown subcommand.").setEphemeral(true).queue();
         }
@@ -249,36 +195,6 @@ public class Connect4CommandListener extends ListenerAdapter {
                     error -> System.err.println("Failed to send reminder: " + error.getMessage())
             );
         }, seconds, TimeUnit.SECONDS);
-    }
-
-    private void seedFromHistory(SlashCommandInteractionEvent event, long channelId) {
-        event.getChannel().getHistory().retrievePast(100).queue(messages -> {
-            java.util.List<String> brainHistory = new java.util.ArrayList<>();
-            markovManager.ensureAiLogInitialized(channelId);
-            
-            // History is newest first, so reverse for AI log
-            for (int i = messages.size() - 1; i >= 0; i--) {
-                net.dv8tion.jda.api.entities.Message msg = messages.get(i);
-                String content = com.masteroebot.markov.MarkovUtils.getDisplayNameContent(msg).trim();
-                if (content.isEmpty()) continue;
-
-                if (!msg.getAuthor().isBot()) {
-                    brainHistory.add(content);
-                    String authorName = msg.getMember() != null ? msg.getMember().getEffectiveName() : msg.getAuthor().getEffectiveName();
-                    markovManager.appendToAiLog(channelId, authorName, content);
-                } else if (msg.getAuthor().getIdLong() == event.getJDA().getSelfUser().getIdLong()) {
-                    markovManager.appendBotMessageToAiLog(channelId, content);
-                }
-            }
-
-            if (!brainHistory.isEmpty()) {
-                markovManager.seedFromHistory(channelId, brainHistory);
-                System.out.println("Brain and AI log for channel " + channelId + " seeded from history via command.");
-                event.getHook().sendMessage("Brain seeded with " + brainHistory.size() + " messages from channel history.")
-                        .setEphemeral(true)
-                        .queue();
-            }
-        });
     }
 
     private CommandResponse startGame(long channelId, User p1, User p2, long selfBotId) {

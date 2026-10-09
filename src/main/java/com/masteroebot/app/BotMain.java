@@ -9,9 +9,9 @@ import java.util.concurrent.TimeUnit;
 
 import javax.security.auth.login.LoginException;
 
-import com.masteroebot.bot.BotCommandRegistrar;
 import com.masteroebot.bot.BotProfile;
 import com.masteroebot.bot.BotRegistry;
+import com.masteroebot.bot.BotSlashCommands;
 import com.masteroebot.bot.DiscordTokens;
 import com.masteroebot.bot.DumcordTokens;
 import com.masteroebot.markov.ArliAiCoordinator;
@@ -22,8 +22,11 @@ import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovListener;
 import com.masteroebot.markov.MarkovManager;
 import com.masteroebot.markov.RoundRobinGenerativeAiResponder;
+import com.masteroebot.masteroebot.MasterOEBotCommands;
 import com.masteroebot.masteroebot.connect4.Connect4CommandListener;
 import com.masteroebot.masteroebot.feedback.FeedbackCommandListener;
+import com.masteroebot.paraokabot.ParaokaBotCommands;
+import com.masteroebot.paraokabot.ParaokaCommandListener;
 import com.masteroebot.masteroebot.typeracer.TypeRacerCommandListener;
 
 import net.dv8tion.jda.api.JDA;
@@ -156,9 +159,13 @@ public class BotMain {
             }
 
             if (boot.listener() != null) {
-                boot.listener().setMarkovAvailable(markovAvailable);
+                ((BotSlashCommands) boot.listener()).setMarkovAvailable(markovAvailable);
             }
-            BotCommandRegistrar.registerForBot(profile, boot.jda(), boot.listener(), boot.typeracerListener(), boot.feedbackListener());
+            if (isParaoka(profile)) {
+                ParaokaBotCommands.registerForBot(profile.displayName(), boot.jda(), (ParaokaCommandListener) boot.listener());
+            } else {
+                MasterOEBotCommands.registerForBot(profile, boot.jda(), (Connect4CommandListener) boot.listener(), boot.typeracerListener(), boot.feedbackListener());
+            }
             online.add(boot);
             System.out.println("[" + profile.displayName() + "] is online. Markov available: " + markovAvailable);
         }
@@ -176,18 +183,26 @@ public class BotMain {
         }));
     }
 
+    private static boolean isParaoka(BotProfile profile) {
+        return BotRegistry.PARAOKA.key().equals(profile.key());
+    }
+
     private static BootResult startBot(BotProfile profile, String token, boolean enableMessageContent,
-                                       MarkovManager markovManager, MarkovConfig markovConfig,
-                                       RoundRobinGenerativeAiResponder generativeAiResponder,
-                                       ArliAiReactionResponder reactionResponder,
-                                       ArliAiSecondChanceResponder secondChanceResponder,
-                                       ArliAiCoordinator coordinator)
+                                        MarkovManager markovManager, MarkovConfig markovConfig,
+                                        RoundRobinGenerativeAiResponder generativeAiResponder,
+                                        ArliAiReactionResponder reactionResponder,
+                                        ArliAiSecondChanceResponder secondChanceResponder,
+                                        ArliAiCoordinator coordinator)
             throws LoginException, InterruptedException {
-        boolean isParaoka = BotRegistry.PARAOKA.key().equals(profile.key());
-        Connect4CommandListener listener =
-                new Connect4CommandListener(markovManager, markovConfig, isParaoka);
+        boolean isParaoka = isParaoka(profile);
+        ListenerAdapter listener;
         TypeRacerCommandListener typeracerListener = null;
         FeedbackCommandListener feedbackListener = null;
+        if (isParaoka) {
+            listener = new ParaokaCommandListener(markovManager, markovConfig);
+        } else {
+            listener = new Connect4CommandListener(markovManager, markovConfig);
+        }
         if (profile.registersCommands() && !isParaoka) {
             typeracerListener = new TypeRacerCommandListener();
             feedbackListener = new FeedbackCommandListener(markovManager);
@@ -238,7 +253,7 @@ public class BotMain {
         return new BootResult(profile, jda, listener, typeracerListener, feedbackListener, markovListener);
     }
 
-    private record BootResult(BotProfile profile, JDA jda, Connect4CommandListener listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
+    private record BootResult(BotProfile profile, JDA jda, ListenerAdapter listener, TypeRacerCommandListener typeracerListener, FeedbackCommandListener feedbackListener, MarkovListener markovListener) {
     }
 
     private enum StartupOutcome {
