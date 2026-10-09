@@ -25,26 +25,26 @@ import net.dv8tion.jda.api.utils.messages.MessagePollData;
 /**
  * {@code /poll} for MasterOEBot. Takes one {@code prompt} arg describing what
  * the poll should be about, pulls prior channel messages for context, and asks
- * the shared AI backend once for the question, options, and duration.
+ * the shared AI backend once for the question and options. Duration is a
+ * random 8-72h roll, never AI-decided.
  */
 public class PollCommandListener extends ListenerAdapter {
-    /** System prompt in code, like the other bot prompts. Single AI call decides everything. */
+    /** System prompt in code, like the other bot prompts. Single AI call decides question and options. */
     static final String SYSTEM_PROMPT = """
             You create a Discord poll from a user's poll request and recent channel chat.
             Recent chat lines are ordered oldest to newest, each on its own line in the format <DisplayName> message. The last line is the poll request in the format Poll request: "...".
             Use the request as the main topic. Use chat context only to sharpen wording and options (inside jokes, current topics, names). Never expose chat contents the request did not ask about.
-            Pick a short poll question (max 140 characters) and 2 to 5 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
-            You always pick durationHours as an integer from 1 to 24 that fits the request. Honor any duration named in the request.
+            Pick a short poll question (max 140 characters) and 2 to 10 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
             Return ONLY raw JSON, no markdown fences, no commentary, with exactly these keys:
-            {"question": "...", "options": ["...", "..."], "durationHours": 4}
+            {"question": "...", "options": ["...", "..."]}
             """;
 
     static final int MAX_QUESTION_LENGTH = 300;
     static final int MAX_OPTION_LENGTH = 55;
-    static final int MAX_OPTIONS = 5;
+    static final int MAX_OPTIONS = 10;
     static final int MIN_OPTIONS = 2;
-    static final int MIN_DURATION_HOURS = 1;
-    static final int MAX_DURATION_HOURS = 24;
+    static final int MIN_DURATION_HOURS = 8;
+    static final int MAX_DURATION_HOURS = 72;
     static final int AI_TIMEOUT_SECONDS = 60;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -160,7 +160,8 @@ public class PollCommandListener extends ListenerAdapter {
         for (String option : spec.options()) {
             builder.addAnswer(option);
         }
-        builder.setDuration(spec.durationHours(), TimeUnit.HOURS);
+        int durationHours = rollDurationHours();
+        builder.setDuration(durationHours, TimeUnit.HOURS);
         MessagePollData poll;
         try {
             poll = builder.build();
@@ -175,7 +176,7 @@ public class PollCommandListener extends ListenerAdapter {
                     sent -> {
                         System.out.println("Poll posted in channel " + event.getChannel().getId()
                                 + " message " + sent.getId() + " (" + spec.options().size()
-                                + " options, " + spec.durationHours() + "h).");
+                                + " options, " + durationHours + "h).");
                         event.getHook().editOriginal("Poll posted!").queue(
                                 null,
                                 editError -> System.err.println("Poll confirmation edit failed: " + editError.getMessage()));
@@ -239,38 +240,12 @@ public class PollCommandListener extends ListenerAdapter {
             throw new IllegalArgumentException("Poll JSON needs at least " + MIN_OPTIONS + " distinct options");
         }
 
-        JsonNode durationNode = firstPresent(root, "durationHours", "duration_hours", "duration");
-        if (durationNode == null) {
-            throw new IllegalArgumentException("Poll JSON missing durationHours");
-        }
-        int durationHours;
-        if (durationNode.canConvertToInt()) {
-            durationHours = durationNode.asInt();
-        } else if (durationNode.isTextual()) {
-            try {
-                durationHours = Integer.parseInt(durationNode.asText("").strip());
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Poll JSON has non-numeric durationHours");
-            }
-        } else {
-            throw new IllegalArgumentException("Poll JSON has non-numeric durationHours");
-        }
-        if (durationHours < MIN_DURATION_HOURS) {
-            durationHours = MIN_DURATION_HOURS;
-        } else if (durationHours > MAX_DURATION_HOURS) {
-            durationHours = MAX_DURATION_HOURS;
-        }
-
-        return new PollSpec(question, List.copyOf(options), durationHours);
+        return new PollSpec(question, List.copyOf(options));
     }
 
-    private static JsonNode firstPresent(JsonNode root, String... names) {
-        for (String name : names) {
-            if (root.has(name)) {
-                return root.get(name);
-            }
-        }
-        return null;
+    /** Random poll duration in hours, inclusive 8-72. Never AI-decided. */
+    static int rollDurationHours() {
+        return java.util.concurrent.ThreadLocalRandom.current().nextInt(MIN_DURATION_HOURS, MAX_DURATION_HOURS + 1);
     }
 
     private static String stripCodeFences(String raw) {
@@ -288,6 +263,6 @@ public class PollCommandListener extends ListenerAdapter {
         return stripped;
     }
 
-    record PollSpec(String question, List<String> options, int durationHours) {
+    record PollSpec(String question, List<String> options) {
     }
 }

@@ -10,31 +10,38 @@ class PollCommandListenerTest {
     @Test
     void parsesValidJson() {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
-                "{\"question\": \"Best game?\", \"options\": [\"Chess\", \"Go\"], \"durationHours\": 12}");
+                "{\"question\": \"Best game?\", \"options\": [\"Chess\", \"Go\"]}");
         assertEquals("Best game?", spec.question());
         assertEquals(2, spec.options().size());
-        assertEquals(12, spec.durationHours());
     }
 
     @Test
-    void stripsCodeFencesAndClamps() {
+    void stripsCodeFencesAndDedupes() {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
-                "```json\n{\"question\": \"Q?\", \"options\": [\"A\", \"A\", \"B\"], \"durationHours\": 999}\n```");
+                "```json\n{\"question\": \"Q?\", \"options\": [\"A\", \"A\", \"B\"]}\n```");
         assertEquals(2, spec.options().size());
-        assertEquals(24, spec.durationHours());
     }
 
     @Test
-    void capsOptionsAtFive() {
+    void capsOptionsAtTen() {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
-                "{\"question\": \"Q?\", \"options\": [\"A\", \"B\", \"C\", \"D\", \"E\", \"F\", \"G\"], \"durationHours\": 5}");
-        assertEquals(5, spec.options().size());
+                "{\"question\": \"Q?\", \"options\": [\"A\", \"B\", \"C\", \"D\", \"E\", \"F\", \"G\", \"H\", \"I\", \"J\", \"K\", \"L\"]}");
+        assertEquals(10, spec.options().size());
     }
 
     @Test
-    void rejectsMissingDuration() {
-        assertThrows(IllegalArgumentException.class,
-                () -> PollCommandListener.parsePollSpec("{\"question\": \"Q?\", \"options\": [\"A\", \"B\"]}"));
+    void ignoresDurationIfPresent() {
+        PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
+                "{\"question\": \"Q?\", \"options\": [\"A\", \"B\"], \"durationHours\": 4}");
+        assertEquals(2, spec.options().size());
+    }
+
+    @Test
+    void rollDurationStaysInRange() {
+        for (int i = 0; i < 200; i++) {
+            int hours = PollCommandListener.rollDurationHours();
+            assertTrue(hours >= 8 && hours <= 72, "out of range: " + hours);
+        }
     }
 
     @Test
@@ -56,10 +63,10 @@ class PollCommandListenerTest {
     }
 
     @Test
-    void systemPromptCoversAllOutputs() {
+    void systemPromptCoversQuestionAndOptionsOnly() {
         String prompt = PollCommandListener.SYSTEM_PROMPT.toLowerCase();
         assertTrue(prompt.contains("question"));
         assertTrue(prompt.contains("options"));
-        assertTrue(prompt.contains("durationhours"));
+        assertTrue(!prompt.contains("duration"), "AI must not decide duration");
     }
 }
