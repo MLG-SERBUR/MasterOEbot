@@ -93,13 +93,13 @@ public class MarkovListener extends ListenerAdapter {
 
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator) {
         this(manager, config, jda, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
-                BotRegistry.MASTER.botTag(), BotRegistry.MASTER.reactionPrompt());
+                BotRegistry.MasterOEBot.botTag(), BotRegistry.MasterOEBot.reactionPrompt());
     }
 
     /** Per-bot variant: own log tag and reaction prompt, shared backend. */
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator, String botTag, String reactionPrompt) {
         this(manager, config, jda, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
-                botTag, reactionPrompt, BotRegistry.MASTER.key());
+                botTag, reactionPrompt, BotRegistry.MasterOEBot.key());
     }
 
     /** Per-bot variant with explicit identity for per-bot toggles (e.g. paraokabot). */
@@ -107,18 +107,18 @@ public class MarkovListener extends ListenerAdapter {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
-        this.botKey = (botKey == null || botKey.isBlank()) ? BotRegistry.MASTER.key() : botKey;
+        this.botKey = (botKey == null || botKey.isBlank()) ? BotRegistry.MasterOEBot.key() : botKey;
         this.generativeAiResponder = generativeAiResponder;
         this.reactionResponder = reactionResponder;
         this.secondChanceResponder = secondChanceResponder;
         this.coordinator = coordinator;
-        String normalizedTag = (botTag == null || botTag.isBlank()) ? BotRegistry.MASTER.botTag() : botTag;
+        String normalizedTag = (botTag == null || botTag.isBlank()) ? BotRegistry.MasterOEBot.botTag() : botTag;
         this.botTag = normalizedTag.endsWith(" ") ? normalizedTag : normalizedTag + " ";
         String stripped = this.botTag.trim();
         this.botDisplayName = (stripped.startsWith("<") && stripped.endsWith(">")
                 ? stripped.substring(1, stripped.length() - 1) : stripped);
         this.reactionPrompt = (reactionPrompt == null || reactionPrompt.isBlank())
-                ? BotRegistry.MASTER.reactionPrompt() : reactionPrompt;
+                ? BotRegistry.MasterOEBot.reactionPrompt() : reactionPrompt;
         this.scheduler.scheduleAtFixedRate(this::checkAndScrubAiLogs, 5, 5, TimeUnit.MINUTES);
         startStartupTimers();
     }

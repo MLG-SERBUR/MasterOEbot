@@ -52,32 +52,16 @@ class BotConfigTest {
     }
 
     @Test
-    void missingSystemPromptFallsBackToCodeDefault() throws IOException {
+    void promptKeysInYamlAreIgnoredPromptsLiveInCode() throws IOException {
         BotConfig config = BotConfig.load(writeConfig("""
                     groqApiKey: "gk"
+                    systemPrompt: "yaml prompt should be ignored"
+                    secondChanceSystemPrompt: "yaml follow-up should be ignored"
                 """));
 
-        assertEquals(GenerativeAiConfig.DEFAULT_SYSTEM_PROMPT,
-                config.generativeAiConfig().systemPrompt());
-    }
-
-    @Test
-    void missingSecondChancePromptFallsBackToDefault() throws IOException {
-        BotConfig config = BotConfig.load(writeConfig("""
-                    groqApiKey: "gk"
-                """));
-
-        assertEquals(GenerativeAiConfig.DEFAULT_SECOND_CHANCE_SYSTEM_PROMPT,
-                config.generativeAiConfig().secondChanceSystemPrompt());
-    }
-
-    @Test
-    void customSecondChancePromptLoads() throws IOException {
-        BotConfig config = BotConfig.load(writeConfig("""
-                    secondChanceSystemPrompt: "custom follow-up"
-                """));
-
-        assertEquals("custom follow-up", config.generativeAiConfig().secondChanceSystemPrompt());
+        // Prompts live per-bot in BotRegistry, never in yaml or config defaults.
+        GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
+        assertEquals(defaults.groqModels(), config.generativeAiConfig().groqModels());
     }
 
     @Test

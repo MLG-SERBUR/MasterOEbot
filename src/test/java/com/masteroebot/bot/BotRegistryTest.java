@@ -20,7 +20,7 @@ class BotRegistryTest {
     @Test
     void masterFirstAndEachBotOwnsCommands() {
         assertEquals("MasterOEBot", BotRegistry.PROFILES.get(0).key());
-        assertTrue(BotRegistry.MASTER.registersCommands());
+        assertTrue(BotRegistry.MasterOEBot.registersCommands());
         assertTrue(BotRegistry.PARAOKA.registersCommands());
     }
 
@@ -37,6 +37,19 @@ class BotRegistryTest {
     void allTagsCoverBothBots() {
         assertTrue(BotRegistry.ALL_TAGS.contains("<MasterOEBot>"));
         assertTrue(BotRegistry.ALL_TAGS.contains("<paraokabot>"));
+    }
+
+    @Test
+    void eachBotDefinesItsOwnPromptsInCode() {
+        for (var profile : BotRegistry.PROFILES) {
+            assertFalse(profile.systemPrompt() == null || profile.systemPrompt().isBlank(),
+                    profile.key() + " must define systemPrompt in code");
+            assertFalse(profile.secondChancePrompt() == null || profile.secondChancePrompt().isBlank(),
+                    profile.key() + " must define secondChancePrompt in code");
+            assertFalse(profile.reactionPrompt() == null || profile.reactionPrompt().isBlank(),
+                    profile.key() + " must define reactionPrompt in code");
+        }
+        assertTrue(BotRegistry.MasterOEBot.systemPrompt().contains("MasterOEBot"));
     }
 
     @Test

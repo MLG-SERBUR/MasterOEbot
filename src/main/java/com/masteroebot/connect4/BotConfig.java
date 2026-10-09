@@ -75,8 +75,6 @@ public record BotConfig(String token, GenerativeAiConfig generativeAiConfig) {
     private static GenerativeAiConfig buildGenerativeAiConfig(Map<String, Object> aiData) {
         GenerativeAiConfig defaults = GenerativeAiConfig.defaults();
         return new GenerativeAiConfig(
-                readString(aiData, "ai.systemPrompt", defaults.systemPrompt()),
-                readString(aiData, "ai.secondChanceSystemPrompt", defaults.secondChanceSystemPrompt()),
                 readString(aiData, "ai.cerebrasApiKey", defaults.cerebrasApiKey()),
                 readString(aiData, "ai.groqApiKey", defaults.groqApiKey()),
                 readString(aiData, "ai.openrouterApiKey", defaults.openrouterApiKey()),

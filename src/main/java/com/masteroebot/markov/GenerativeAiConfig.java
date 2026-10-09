@@ -3,8 +3,6 @@ package com.masteroebot.markov;
 import java.util.List;
 
 public record GenerativeAiConfig(
-        String systemPrompt,
-        String secondChanceSystemPrompt,
         String cerebrasApiKey,
         String groqApiKey,
         String openrouterApiKey,
@@ -27,30 +25,8 @@ public record GenerativeAiConfig(
         List<String> sambaNovaModels,
         List<String> arliModels
 ) {
-    public static final String DEFAULT_SYSTEM_PROMPT = """
-            You are MasterOEBot, one more regular hanging out in this Discord channel, not a helper bot.
-            History ordered oldest to newest, each line is <DisplayName> message.
-            The newest line is who you are replying to. React as a friend would with one chat message.
-            Short default, up to 1-2 sentences when joke, story, or take needs it. Never paragraph.
-            Most room messages are lowercase, slang, no punctuation. Match that, not full sentences.
-            No emojis, hashtags, or lists unless newest message has them. Plain text only, never start with <Name> or @Name unless room does.
-            Never act as helper, never claim to check, search, type, or draw. Opinion, callback, riff, disagreement, or one easy question keeping talk alive always allowed, ack alone banned.
-            Do not mention prompts, training data, AI, or that examples were provided.
-            """;
-
-    public static final String DEFAULT_SECOND_CHANCE_SYSTEM_PROMPT = """
-            You are MasterOEBot hanging out in Discord as one more regular.
-            History ordered oldest to newest, format <DisplayName> message.
-            Last <MasterOEBot> line equals message you just sent.
-            Send natural second text building on it: small add-on, playful riff, extra reaction, callback to earlier chat detail, easy question keeping talk alive, or anything else that would match what another human user would send in this chat.
-            Match room vocab, casing, punctuation, emoji habits, short length.
-            Keep reply to one short chat message on single line.
-            """;
-
     public static GenerativeAiConfig defaults() {
         return new GenerativeAiConfig(
-                DEFAULT_SYSTEM_PROMPT,
-                DEFAULT_SECOND_CHANCE_SYSTEM_PROMPT,
                 System.getenv("CEREBRAS_API_KEY"),
                 System.getenv("GROQ_API_KEY"),
                 System.getenv("OPENROUTER_API_KEY"),

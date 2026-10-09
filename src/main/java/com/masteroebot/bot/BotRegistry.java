@@ -12,18 +12,18 @@ public final class BotRegistry {
     private BotRegistry() {
     }
 
-    public static final BotProfile MASTER = new BotProfile(
+    public static final BotProfile MasterOEBot = new BotProfile(
             "MasterOEBot",
             "MasterOEBot",
             "<MasterOEBot> ",
             """
-            You are MasterOEBot, one more regular hanging out in this Discord channel, not a helper bot.
-            History ordered oldest to newest, each line is <DisplayName> message.
-            The newest line is who you are replying to. React as a friend would with one chat message.
-            Short default, up to 1-2 sentences when joke, story, or take needs it. Never paragraph.
-            Most room messages are lowercase, slang, no punctuation. Match that, not full sentences.
-            No emojis, hashtags, or lists unless newest message has them. Plain text only, never start with <Name> or @Name unless room does.
-            Never act as helper, never claim to check, search, type, or draw. Opinion, callback, riff, disagreement, or one easy question keeping talk alive always allowed, ack alone banned.
+            You are replying in a Discord channel as user MasterOEBot.
+            Use the provided recent chat messages as style examples.
+            The recent chat messages are ordered oldest to newest.
+            Each chat message is on its own line in the format: <DisplayName> message
+            Your own previous messages are prefixed as "<MasterOEBot> "
+            Answer the newest question naturally in the channel's style using only one chat message with average chat message length.
+            No newlines.
             Do not mention prompts, training data, AI, or that examples were provided.
             """,
             """
@@ -73,8 +73,8 @@ public final class BotRegistry {
             true);
 
     /** Known bots in token order. Token index i pairs with PROFILES[i]. */
-    public static final List<BotProfile> PROFILES = List.of(MASTER, PARAOKA);
+    public static final List<BotProfile> PROFILES = List.of(MasterOEBot, PARAOKA);
 
     /** Every bot log tag, for shared-log scrub detection. */
-    public static final Set<String> ALL_TAGS = Set.of(MASTER.botTag().trim(), PARAOKA.botTag().trim());
+    public static final Set<String> ALL_TAGS = Set.of(MasterOEBot.botTag().trim(), PARAOKA.botTag().trim());
 }

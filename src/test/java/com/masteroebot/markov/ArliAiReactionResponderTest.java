@@ -45,8 +45,6 @@ class ArliAiReactionResponderTest {
     @Test
     void buildsArliProvidersFromConfig() {
         GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "second chance prompt",
                 null, null, null,
                 null, null, null, null, null, null, null, "arli-key",
                 List.of(), List.of(), List.of(),
@@ -103,8 +101,6 @@ class ArliAiReactionResponderTest {
     @Test
     void skipsArliWhenKeyMissing() {
         GenerativeAiConfig config = new GenerativeAiConfig(
-                "system prompt",
-                "second chance prompt",
                 null, null, null,
                 null, null, null, null, null, null, null, null,
                 List.of(), List.of(), List.of(),

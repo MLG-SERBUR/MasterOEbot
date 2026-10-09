@@ -29,16 +29,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ArliAiSecondChanceResponderTest {
     @Test
-    void configConstructorUsesSecondChancePrompt() {
+    void perBotConstructorUsesExplicitFollowUpPrompt() {
         GenerativeAiConfig config = new GenerativeAiConfig(
-                "main prompt",
-                "follow-up prompt",
                 null, null, null, null, null, null, null, null, null, null, "arli-key",
                 List.of(), List.of(), List.of(), List.of(), List.of(),
                 List.of(), List.of(), List.of(), List.of(),
                 List.of("Qwen3.5-27B-Derestricted"));
 
-        ArliAiSecondChanceResponder responder = new ArliAiSecondChanceResponder(config);
+        ArliAiSecondChanceResponder responder = new ArliAiSecondChanceResponder(config, null, "follow-up prompt");
 
         assertEquals("follow-up prompt", responder.getSystemPrompt());
     }

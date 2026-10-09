@@ -54,10 +54,6 @@ public class RoundRobinGenerativeAiResponder implements GenerativeAiResponder {
     private final List<Provider> providers;
     private final String systemPrompt;
 
-    public RoundRobinGenerativeAiResponder(GenerativeAiConfig config) {
-        this(HttpClient.newHttpClient(), buildProviders(config), config.systemPrompt());
-    }
-
     /** Per-bot variant: shared provider backend, own system prompt from code. */
     public RoundRobinGenerativeAiResponder(GenerativeAiConfig config, String systemPrompt) {
         this(HttpClient.newHttpClient(), buildProviders(config), systemPrompt);
