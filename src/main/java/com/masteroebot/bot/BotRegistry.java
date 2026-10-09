@@ -4,9 +4,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Bot definitions. MasterOEBot (index 0) owns all slash/prefix commands.
- * paraokabot (index 1) registers no commands; it only hangs out via the
- * shared Markov/AI backend with its own prompts and log tag.
+ * Bot definitions. Each bot owns its slash commands on its own application:
+ * MasterOEBot the full set, paraokabot only its own toggle. Per-channel
+ * enable is independent per bot.
  */
 public final class BotRegistry {
     private BotRegistry() {
@@ -70,7 +70,7 @@ public final class BotRegistry {
             Do not choose reactions merely because other users used them.
             Return only comma-separated candidate ids, or NONE.
             """,
-            false);
+            true);
 
     /** Known bots in token order. Token index i pairs with PROFILES[i]. */
     public static final List<BotProfile> PROFILES = List.of(MASTER, PARAOKA);

@@ -36,6 +36,7 @@ public class MarkovListener extends ListenerAdapter {
     private final ArliAiCoordinator coordinator;
     private final String botTag;
     private final String botDisplayName;
+    private final String botKey;
     private final String reactionPrompt;
     private JDA jda;
     private final Random rand = new Random();
@@ -97,9 +98,16 @@ public class MarkovListener extends ListenerAdapter {
 
     /** Per-bot variant: own log tag and reaction prompt, shared backend. */
     public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator, String botTag, String reactionPrompt) {
+        this(manager, config, jda, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
+                botTag, reactionPrompt, BotRegistry.MASTER.key());
+    }
+
+    /** Per-bot variant with explicit identity for per-bot toggles (e.g. paraokabot). */
+    public MarkovListener(MarkovManager manager, MarkovConfig config, JDA jda, GenerativeAiResponder generativeAiResponder, GenerativeAiResponder reactionResponder, GenerativeAiResponder secondChanceResponder, ArliAiCoordinator coordinator, String botTag, String reactionPrompt, String botKey) {
         this.manager = manager;
         this.config = config;
         this.jda = jda;
+        this.botKey = (botKey == null || botKey.isBlank()) ? BotRegistry.MASTER.key() : botKey;
         this.generativeAiResponder = generativeAiResponder;
         this.reactionResponder = reactionResponder;
         this.secondChanceResponder = secondChanceResponder;
@@ -117,7 +125,9 @@ public class MarkovListener extends ListenerAdapter {
 
     private void startStartupTimers() {
         long now = System.currentTimeMillis();
-        for (long channelId : config.getEnabledChannelIds()) {
+        java.util.Set<Long> enabledChannels = new java.util.HashSet<>(config.getEnabledChannelIds());
+        enabledChannels.addAll(config.getParaokaEnabledChannelIds());
+        for (long channelId : enabledChannels) {
             if (manager.aiLogExists(channelId)) {
                 firstInvocationTimeByChannel.putIfAbsent(channelId, now);
                 channelsNeedingScrub.add(channelId);
@@ -134,6 +144,19 @@ public class MarkovListener extends ListenerAdapter {
 
     public void setJDA(JDA jda) {
         this.jda = jda;
+    }
+
+    /** True when this listener belongs to paraokabot (per-bot toggle applies). */
+    private boolean isParaoka() {
+        return BotRegistry.PARAOKA.key().equals(botKey);
+    }
+
+    /** False when this bot's own per-channel toggle silences this listener. */
+    private boolean isBotEnabled(long channelId) {
+        if (isParaoka()) {
+            return config.isParaokaEnabled(channelId);
+        }
+        return config.isEnabled(channelId);
     }
 
     private String sanitizeOutput(String text) {
@@ -183,7 +206,7 @@ public class MarkovListener extends ListenerAdapter {
 
         long channelId = event.getChannel().getIdLong();
 
-        if (!config.isEnabled(channelId)) return;
+        if (!isBotEnabled(channelId)) return;
 
         Message message = event.getMessage();
 
@@ -297,7 +320,7 @@ public class MarkovListener extends ListenerAdapter {
         if (!event.isFromGuild()) return;
 
         long channelId = event.getChannel().getIdLong();
-        if (!config.isEnabled(channelId)) return;
+        if (!isBotEnabled(channelId)) return;
         if (jda != null && event.getUserIdLong() == jda.getSelfUser().getIdLong()) return;
 
         event.retrieveMessage().queue(message -> rememberPendingReactionMessage(channelId, message, event.getEmoji()), error -> {
@@ -332,11 +355,7 @@ public class MarkovListener extends ListenerAdapter {
     }
 
     private void sendTriggeredReply(MessageReceivedEvent event, long channelId, String content, Message referencedMessage) {
-        if (config.isQuestionAiEnabled(channelId)) {
-            sendGenerativeAiReplyWithFallback(event, channelId, content, referencedMessage);
-            return;
-        }
-        sendMarkovReplies(event, channelId, content);
+        sendGenerativeAiReplyWithFallback(event, channelId, content, referencedMessage);
     }
 
     private void sendImmediateSeededMarkovReply(MessageReceivedEvent event, long channelId, String content) {

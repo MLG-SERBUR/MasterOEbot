@@ -182,26 +182,28 @@ public class BotMain {
                                        ArliAiSecondChanceResponder secondChanceResponder,
                                        ArliAiCoordinator coordinator)
             throws LoginException, InterruptedException {
-        Connect4CommandListener listener = null;
+        boolean isParaoka = BotRegistry.PARAOKA.key().equals(profile.key());
+        Connect4CommandListener listener =
+                new Connect4CommandListener(markovManager, markovConfig, isParaoka);
         TypeRacerCommandListener typeracerListener = null;
         FeedbackCommandListener feedbackListener = null;
-        if (profile.registersCommands()) {
-            listener = new Connect4CommandListener(enableMessageContent, markovManager, markovConfig);
-            typeracerListener = new TypeRacerCommandListener(enableMessageContent);
+        if (profile.registersCommands() && !isParaoka) {
+            typeracerListener = new TypeRacerCommandListener();
             feedbackListener = new FeedbackCommandListener(markovManager);
         }
         MarkovListener markovListener = null;
 
         if (enableMessageContent) {
             markovListener = new MarkovListener(markovManager, markovConfig, null, generativeAiResponder, reactionResponder, secondChanceResponder, coordinator,
-                    profile.botTag(), profile.reactionPrompt());
+                    profile.botTag(), profile.reactionPrompt(), profile.key());
         }
 
         StartupProbe probe = new StartupProbe();
         JDABuilder builder = JDABuilder.createDefault(token)
                 .addEventListeners(probe);
-        if (listener != null) {
-            builder.addEventListeners(listener, typeracerListener, feedbackListener);
+        builder.addEventListeners(listener);
+        if (typeracerListener != null && feedbackListener != null) {
+            builder.addEventListeners(typeracerListener, feedbackListener);
         }
 
         if (markovListener != null) {

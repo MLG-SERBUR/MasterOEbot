@@ -24,7 +24,7 @@ public class MarkovPollHandler {
         long channelId = event.getChannel().getIdLong();
         
         if (!config.isEnabled(channelId)) {
-            event.reply("Markov is not enabled for this channel. Use /markov toggle first.").setEphemeral(true).queue();
+            event.reply("Markov is not enabled for this channel. Use /masteroebot toggle first.").setEphemeral(true).queue();
             return;
         }
         

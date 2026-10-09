@@ -18,10 +18,10 @@ class BotRegistryTest {
     Path tempDir;
 
     @Test
-    void masterFirstAndOwnsCommands() {
+    void masterFirstAndEachBotOwnsCommands() {
         assertEquals("MasterOEBot", BotRegistry.PROFILES.get(0).key());
         assertTrue(BotRegistry.MASTER.registersCommands());
-        assertFalse(BotRegistry.PARAOKA.registersCommands());
+        assertTrue(BotRegistry.PARAOKA.registersCommands());
     }
 
     @Test

@@ -15,15 +15,11 @@ import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 
 public class TypeRacerCommandListener extends ListenerAdapter {
-    private static final String PREFIX_COMMAND = "!typeracer";
-
-    private final boolean prefixFallbackEnabled;
     private final Map<Long, Map<Integer, TypeRacerGame>> gamesByChannel = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private int nextGameId = 1;
 
-    public TypeRacerCommandListener(boolean prefixFallbackEnabled) {
-        this.prefixFallbackEnabled = prefixFallbackEnabled;
+    public TypeRacerCommandListener() {
     }
 
     public void registerCommands(CommandListUpdateAction updater) {
@@ -76,11 +72,9 @@ public class TypeRacerCommandListener extends ListenerAdapter {
         event.reply(String.format(
                 "**TypeRacer #%d** lobby created!\n"
                         + "Players: <@%d> (host)\n"
-                        + "Use `%s` or `/typeracer join` to join.\n"
-                        + "Host: use `%s` or `/typeracer go` to start the race.",
-                gameId, event.getUser().getIdLong(),
-                PREFIX_COMMAND + " join",
-                PREFIX_COMMAND + " go"
+                        + "Use `/typeracer join` to join.\n"
+                        + "Host: use `/typeracer go` to start the race.",
+                gameId, event.getUser().getIdLong()
         )).queue();
     }
 
@@ -200,11 +194,6 @@ public class TypeRacerCommandListener extends ListenerAdapter {
         long channelId = event.getChannel().getIdLong();
         long userId = event.getAuthor().getIdLong();
 
-        if (raw.regionMatches(true, 0, PREFIX_COMMAND, 0, PREFIX_COMMAND.length())) {
-            handlePrefixCommand(event);
-            return;
-        }
-
         Map<Integer, TypeRacerGame> channelGames = gamesByChannel.get(channelId);
         if (channelGames == null) return;
 
@@ -246,151 +235,6 @@ public class TypeRacerCommandListener extends ListenerAdapter {
         }
     }
 
-    private void handlePrefixCommand(MessageReceivedEvent event) {
-        String raw = event.getMessage().getContentRaw();
-        String args = raw.substring(PREFIX_COMMAND.length()).trim().toLowerCase();
-        long channelId = event.getChannel().getIdLong();
-
-        if (args.isEmpty() || "help".equals(args)) {
-            event.getChannel().sendMessage(helpMessage()).queue();
-            return;
-        }
-
-        if (args.startsWith("join")) {
-            joinGamePrefix(event, channelId);
-        } else if (args.startsWith("go")) {
-            goRacePrefix(event, channelId);
-        } else if (args.startsWith("abort")) {
-            abortGamePrefix(event, channelId);
-        } else if (args.startsWith("start")) {
-            startGamePrefix(event);
-        } else {
-            event.getChannel().sendMessage(helpMessage()).queue();
-        }
-    }
-
-    private void startGamePrefix(MessageReceivedEvent event) {
-        long channelId = event.getChannel().getIdLong();
-        Map<Integer, TypeRacerGame> channelGames = gamesByChannel.get(channelId);
-
-        if (channelGames != null && channelGames.values().stream()
-                .anyMatch(g -> g.getState() != TypeRacerGame.State.FINISHED)) {
-            event.getChannel().sendMessage("A race is already in progress.").queue();
-            return;
-        }
-
-        int gameId = nextGameId++;
-        TypeRacerGame game = new TypeRacerGame(event.getAuthor().getIdLong(), channelId, gameId);
-        gamesByChannel.computeIfAbsent(channelId, k -> new ConcurrentHashMap<>()).put(gameId, game);
-
-        event.getChannel().sendMessage(String.format(
-                "**TypeRacer #%d** lobby created!\nPlayers: <@%d> (host)\n"
-                        + "Use `%s join` to join. Host: `%s go` to start.",
-                gameId, event.getAuthor().getIdLong(),
-                PREFIX_COMMAND, PREFIX_COMMAND
-        )).queue();
-    }
-
-    private void joinGamePrefix(MessageReceivedEvent event, long channelId) {
-        Map<Integer, TypeRacerGame> channelGames = gamesByChannel.get(channelId);
-        if (channelGames == null) {
-            event.getChannel().sendMessage("No race lobby. Start one with `" + PREFIX_COMMAND + " start`.").queue();
-            return;
-        }
-
-        TypeRacerGame game = channelGames.values().stream()
-                .filter(g -> g.getState() == TypeRacerGame.State.WAITING)
-                .findFirst()
-                .orElse(null);
-
-        if (game == null) {
-            event.getChannel().sendMessage("No lobby available to join.").queue();
-            return;
-        }
-
-        if (game.isPlayer(event.getAuthor().getIdLong())) {
-            event.getChannel().sendMessage("You're already in.").queue();
-            return;
-        }
-
-        game.addPlayer(event.getAuthor().getIdLong());
-        StringBuilder players = new StringBuilder();
-        for (long p : game.getPlayers()) {
-            players.append("- <@").append(p).append(">\n");
-        }
-        event.getChannel().sendMessage(String.format("**TypeRacer #%d** - Player joined!\nPlayers:\n%sHost: `%s go`",
-                game.getGameId(), players, PREFIX_COMMAND)).queue();
-    }
-
-    private void goRacePrefix(MessageReceivedEvent event, long channelId) {
-        Map<Integer, TypeRacerGame> channelGames = gamesByChannel.get(channelId);
-        if (channelGames == null) {
-            event.getChannel().sendMessage("No lobby. Start one with `" + PREFIX_COMMAND + " start`.").queue();
-            return;
-        }
-
-        TypeRacerGame game = channelGames.values().stream()
-                .filter(g -> g.getState() == TypeRacerGame.State.WAITING)
-                .findFirst()
-                .orElse(null);
-
-        if (game == null) {
-            event.getChannel().sendMessage("No lobby found.").queue();
-            return;
-        }
-
-        if (game.getHostId() != event.getAuthor().getIdLong()) {
-            event.getChannel().sendMessage("Only the host can start.").queue();
-            return;
-        }
-
-        game.setState(TypeRacerGame.State.COUNTDOWN);
-        event.getChannel().sendMessage("Race starting in 3...").queue();
-
-        scheduler.schedule(() -> {
-            event.getChannel().sendMessage("2...").queue();
-        }, 1, TimeUnit.SECONDS);
-
-        scheduler.schedule(() -> {
-            event.getChannel().sendMessage("1...").queue();
-        }, 2, TimeUnit.SECONDS);
-
-        scheduler.schedule(() -> {
-            game.startRace();
-            event.getChannel().sendMessage(String.format(
-                    "**GO!** Type the following:\n```\n%s\n```\nFirst to type it correctly wins!",
-                    game.getTargetText()
-            )).queue();
-        }, 3, TimeUnit.SECONDS);
-    }
-
-    private void abortGamePrefix(MessageReceivedEvent event, long channelId) {
-        Map<Integer, TypeRacerGame> channelGames = gamesByChannel.get(channelId);
-        if (channelGames == null) {
-            event.getChannel().sendMessage("No race to abort.").queue();
-            return;
-        }
-
-        TypeRacerGame game = channelGames.values().stream()
-                .filter(g -> g.getState() != TypeRacerGame.State.FINISHED)
-                .findFirst()
-                .orElse(null);
-
-        if (game == null) {
-            event.getChannel().sendMessage("No active race.").queue();
-            return;
-        }
-
-        if (game.getHostId() != event.getAuthor().getIdLong()) {
-            event.getChannel().sendMessage("Only the host can abort.").queue();
-            return;
-        }
-
-        game.finish();
-        removeGame(channelId, game.getGameId());
-        event.getChannel().sendMessage("Race aborted.").queue();
-    }
-
     private void announceResults(MessageReceivedEvent event, TypeRacerGame game) {
         List<TypeRacerGame.RacerResult> results = game.getResults();
         StringBuilder sb = new StringBuilder("**Race finished!**\n\n");
@@ -414,19 +258,5 @@ public class TypeRacerCommandListener extends ListenerAdapter {
                 gamesByChannel.remove(channelId);
             }
         }
-    }
-
-    private String helpMessage() {
-        return "**TypeRacer** - Race to type text the fastest!\n\n"
-                + "Slash commands:\n"
-                + "`/typeracer start` - Create a lobby\n"
-                + "`/typeracer join` - Join a lobby\n"
-                + "`/typeracer go` - Start the race (host only)\n"
-                + "`/typeracer abort` - Cancel the race (host only)\n\n"
-                + "Prefix commands:\n"
-                + "`" + PREFIX_COMMAND + " start` - Create a lobby\n"
-                + "`" + PREFIX_COMMAND + " join` - Join a lobby\n"
-                + "`" + PREFIX_COMMAND + " go` - Start the race\n"
-                + "`" + PREFIX_COMMAND + " abort` - Cancel the race";
     }
 }

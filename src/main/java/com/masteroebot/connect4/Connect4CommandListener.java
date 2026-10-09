@@ -11,10 +11,8 @@ import java.util.concurrent.TimeUnit;
 import com.masteroebot.markov.MarkovConfig;
 import com.masteroebot.markov.MarkovManager;
 
-import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
-import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
@@ -23,9 +21,8 @@ import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import net.dv8tion.jda.api.requests.restaction.CommandListUpdateAction;
 
 public class Connect4CommandListener extends ListenerAdapter {
-    private static final String PREFIX_COMMAND = "!connect4";
-
-    private final boolean prefixFallbackEnabled;
+    /** True when this listener serves paraokabot: only paraokabot commands, no games. */
+    private final boolean paraokaScope;
     private final Map<Long, Map<Integer, Connect4Game>> gamesByChannel = new ConcurrentHashMap<>();
     private final AtomicInteger nextGameId = new AtomicInteger(1);
     private final MarkovManager markovManager;
@@ -34,15 +31,19 @@ public class Connect4CommandListener extends ListenerAdapter {
     private boolean markovAvailable = false;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-    public Connect4CommandListener(boolean prefixFallbackEnabled) {
-        this.prefixFallbackEnabled = prefixFallbackEnabled;
+    public Connect4CommandListener() {
+        this.paraokaScope = false;
         this.markovManager = null;
         this.markovConfig = null;
         this.pollHandler = null;
     }
 
-    public Connect4CommandListener(boolean prefixFallbackEnabled, MarkovManager markovManager, MarkovConfig markovConfig) {
-        this.prefixFallbackEnabled = prefixFallbackEnabled;
+    public Connect4CommandListener(MarkovManager markovManager, MarkovConfig markovConfig) {
+        this(markovManager, markovConfig, false);
+    }
+
+    public Connect4CommandListener(MarkovManager markovManager, MarkovConfig markovConfig, boolean paraokaScope) {
+        this.paraokaScope = paraokaScope;
         this.markovManager = markovManager;
         this.markovConfig = markovConfig;
         this.pollHandler = new com.masteroebot.markov.MarkovPollHandler(markovManager, markovConfig);
@@ -56,19 +57,31 @@ public class Connect4CommandListener extends ListenerAdapter {
         // NOTE: Do not call queue() here. BotMain combines all listeners'
         // commands into a single updateCommands() action per bot, because each
         // updateCommands() call replaces all global commands.
-        // MasterOEBot-only set; other bots register through BotCommandRegistrar.
+        // Each bot registers only its own commands on its own application.
+        if (paraokaScope) {
+            updater.addCommands(
+                    Commands.slash("paraokabot", "paraokabot chat feature")
+                            .addSubcommands(
+                                    new SubcommandData("toggle", "Toggle paraokabot on/off for this channel"),
+                                    new SubcommandData("status", "Check paraokabot status for this channel")
+                            )
+            );
+            return;
+        }
         updater.addCommands(
                 Commands.slash("connect4", "Start or play Connect 4")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player1", "First player (required to start game)")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.USER, "player2", "Second player (required to start game)")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.STRING, "move", "Move like F7 (used after game starts)")
                         .addOption(net.dv8tion.jda.api.interactions.commands.OptionType.INTEGER, "game", "Game number when multiple games are active"),
-                Commands.slash("markov", "Toggle Markov chain feature")
+                Commands.slash("masteroebot", "MasterOEBot chat feature")
                         .addSubcommands(
-                                new SubcommandData("toggle", "Toggle Markov on/off for this server"),
-                                new SubcommandData("status", "Check Markov status for this server"),
-                                new SubcommandData("short", "Toggle 1-3 token Markov training and output"),
-                                new SubcommandData("question", "Toggle AI replies for question messages in this channel"),
+                                new SubcommandData("toggle", "Toggle MasterOEBot on/off for this server"),
+                                new SubcommandData("status", "Check MasterOEBot status for this server"),
+                                new SubcommandData("short", "Toggle 1-3 token Markov training and output")
+                        ),
+                Commands.slash("markov", "Markov chain extras")
+                        .addSubcommands(
                                 new SubcommandData("poll", "Create a markov generated poll")
                                         .addOption(OptionType.STRING, "word", "Optional seed word", false)
                         ),
@@ -80,7 +93,13 @@ public class Connect4CommandListener extends ListenerAdapter {
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"remind".equals(event.getName())) {
+        if (paraokaScope) {
+            if ("paraokabot".equals(event.getName())) {
+                handleParaokaCommand(event);
+            }
+            return;
+        }
+        if (!"connect4".equals(event.getName()) && !"markov".equals(event.getName()) && !"masteroebot".equals(event.getName()) && !"remind".equals(event.getName())) {
             return;
         }
 
@@ -89,7 +108,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             return;
         }
 
-        if ("markov".equals(event.getName())) {
+        if ("markov".equals(event.getName()) || "masteroebot".equals(event.getName())) {
             handleMarkovCommand(event);
             return;
         }
@@ -100,7 +119,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         long selfBotId = event.getJDA().getSelfUser().getIdLong();
 
         if (moveOption != null) {
-            reply(event, processMove(event.getUser().getIdLong(), channelId, gameIdFromOption(gameOption), moveOption.getAsString(), false, selfBotId));
+            reply(event, processMove(event.getUser().getIdLong(), channelId, gameIdFromOption(gameOption), moveOption.getAsString(), selfBotId));
             return;
         }
 
@@ -108,11 +127,11 @@ public class Connect4CommandListener extends ListenerAdapter {
         User p2 = optionUser(event.getOption("player2"));
 
         if (p1 == null || p2 == null) {
-            reply(event, helpResponse(false));
+            reply(event, helpResponse());
             return;
         }
 
-        reply(event, startGame(channelId, p1, p2, false, selfBotId));
+        reply(event, startGame(channelId, p1, p2, selfBotId));
     }
 
     private void handleMarkovCommand(SlashCommandInteractionEvent event) {
@@ -138,16 +157,13 @@ public class Connect4CommandListener extends ListenerAdapter {
                 seedFromHistory(event, channelId);
             }
 
-            event.reply("Markov feature " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
+            event.reply("MasterOEBot " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
         } else if ("status".equals(subcommand)) {
             boolean enabled = markovConfig.isEnabled(channelId);
             boolean shortMessages = markovConfig.allowShortMessages(channelId);
-            boolean questionAi = markovConfig.isQuestionAiEnabled(channelId);
-            event.reply("Markov feature is currently " + (enabled ? "enabled" : "disabled")
+            event.reply("MasterOEBot is currently " + (enabled ? "enabled" : "disabled")
                     + " for this channel. Short messages are "
-                    + (shortMessages ? "enabled" : "disabled (4-token requirement)")
-                    + ". Question AI replies are "
-                    + (questionAi ? "enabled" : "disabled; questions use Markov") + ".").setEphemeral(true).queue();
+                    + (shortMessages ? "enabled" : "disabled (4-token requirement)") + ".").setEphemeral(true).queue();
         } else if ("short".equals(subcommand)) {
             boolean current = markovConfig.allowShortMessages(channelId);
             boolean newState = !current;
@@ -156,17 +172,43 @@ public class Connect4CommandListener extends ListenerAdapter {
 
             event.reply("Short Markov messages " + (newState ? "enabled" : "disabled; 4-token requirement restored")
                     + " for this channel.").setEphemeral(true).queue();
-        } else if ("question".equals(subcommand)) {
-            boolean current = markovConfig.isQuestionAiEnabled(channelId);
-            boolean newState = !current;
-            markovConfig.setQuestionAiEnabled(channelId, newState);
-
-            event.reply("Question AI replies " + (newState ? "enabled" : "disabled; questions use Markov")
-                    + " for this channel.").setEphemeral(true).queue();
         } else if ("poll".equals(subcommand)) {
             if (pollHandler != null) {
                 pollHandler.handle(event);
             }
+        } else {
+            event.reply("Unknown subcommand.").setEphemeral(true).queue();
+        }
+    }
+
+    private void handleParaokaCommand(SlashCommandInteractionEvent event) {
+        if (!markovAvailable || markovManager == null || markovConfig == null) {
+            event.reply("Markov feature is not available (MESSAGE_CONTENT intent not granted).").setEphemeral(true).queue();
+            return;
+        }
+
+        if (!event.isFromGuild()) {
+            event.reply("This command can only be used in a server.").setEphemeral(true).queue();
+            return;
+        }
+
+        long channelId = event.getChannel().getIdLong();
+        String subcommand = event.getSubcommandName();
+
+        if ("toggle".equals(subcommand)) {
+            boolean current = markovConfig.isParaokaEnabled(channelId);
+            boolean newState = !current;
+            markovConfig.setParaokaEnabled(channelId, newState);
+
+            if (newState && markovManager.isEmpty(channelId)) {
+                seedFromHistory(event, channelId);
+            }
+
+            event.reply("paraokabot " + (newState ? "enabled" : "disabled") + " for this channel.").setEphemeral(true).queue();
+        } else if ("status".equals(subcommand)) {
+            boolean enabled = markovConfig.isParaokaEnabled(channelId);
+            event.reply("paraokabot is currently " + (enabled ? "enabled" : "disabled")
+                    + " for this channel.").setEphemeral(true).queue();
         } else {
             event.reply("Unknown subcommand.").setEphemeral(true).queue();
         }
@@ -239,47 +281,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         });
     }
 
-    @Override
-    public void onMessageReceived(MessageReceivedEvent event) {
-        if (!event.isFromGuild() || event.getAuthor().isBot()) {
-            return;
-        }
-
-        Message message = event.getMessage();
-        String raw = message.getContentRaw();
-        if (!raw.regionMatches(true, 0, PREFIX_COMMAND, 0, PREFIX_COMMAND.length())) {
-            return;
-        }
-
-        String args = raw.substring(PREFIX_COMMAND.length()).trim();
-        if (args.isEmpty()) {
-            event.getChannel().sendMessage(helpResponse(true).message()).queue();
-            return;
-        }
-
-        List<User> mentionedUsers = message.getMentions().getUsers();
-        if (!mentionedUsers.isEmpty()) {
-            if (mentionedUsers.size() > 2) {
-                event.getChannel().sendMessage("Need 1 or 2 mentioned users. Example: `!connect4 @User1 @User2`").queue();
-                return;
-            }
-
-            long selfBotId = event.getJDA().getSelfUser().getIdLong();
-            User p1 = mentionedUsers.get(0);
-            User p2 = mentionedUsers.size() == 1 ? p1 : mentionedUsers.get(1);
-            event.getChannel().sendMessage(startGame(event.getChannel().getIdLong(), p1, p2, true, selfBotId).message()).queue();
-            return;
-        }
-
-        String moveArgs = args.regionMatches(true, 0, "move", 0, 4)
-                ? args.substring(4).trim()
-                : args;
-        ParsedMoveCommand parsedMove = parsePrefixMove(moveArgs);
-        long selfBotId = event.getJDA().getSelfUser().getIdLong();
-        event.getChannel().sendMessage(processMove(event.getAuthor().getIdLong(), event.getChannel().getIdLong(), parsedMove.gameId(), parsedMove.moveText(), true, selfBotId).message()).queue();
-    }
-
-    private CommandResponse startGame(long channelId, User p1, User p2, boolean prefixMode, long selfBotId) {
+    private CommandResponse startGame(long channelId, User p1, User p2, long selfBotId) {
         Connect4Game game = new Connect4Game(p1.getIdLong(), p2.getIdLong());
         int gameId = nextGameId.getAndIncrement();
         gamesByChannel.computeIfAbsent(channelId, ignored -> new ConcurrentHashMap<>()).put(gameId, game);
@@ -291,16 +293,16 @@ public class Connect4CommandListener extends ListenerAdapter {
                 codeBlock(game.renderBoard())));
 
         if (game.getCurrentTurn() == selfBotId) {
-            appendBotMoves(message, game, channelId, gameId, prefixMode, selfBotId);
+            appendBotMoves(message, game, channelId, gameId, selfBotId);
         } else {
-            message.append(turnMessage(gameId, game, prefixMode));
+            message.append(turnMessage(gameId, game));
         }
 
         return CommandResponse.publicMessage(message.toString());
     }
 
-    private CommandResponse processMove(long userId, long channelId, Integer gameId, String moveText, boolean prefixMode, long selfBotId) {
-        GameSelection selection = selectGame(userId, channelId, gameId, prefixMode);
+    private CommandResponse processMove(long userId, long channelId, Integer gameId, String moveText, long selfBotId) {
+        GameSelection selection = selectGame(userId, channelId, gameId);
         if (!selection.valid()) {
             return CommandResponse.ephemeral(selection.errorMessage());
         }
@@ -308,7 +310,7 @@ public class Connect4CommandListener extends ListenerAdapter {
         Connect4Game game = selection.game();
         int selectedGameId = selection.gameId();
         if (moveText == null || moveText.isBlank()) {
-            return CommandResponse.ephemeral("Missing move. Use " + moveUsage(prefixMode) + ".");
+            return CommandResponse.ephemeral("Missing move. Use " + moveUsage() + ".");
         }
 
         Connect4Game.MoveResult result = game.makeMove(userId, moveText);
@@ -327,18 +329,18 @@ public class Connect4CommandListener extends ListenerAdapter {
 
         if (game.getCurrentTurn() == selfBotId) {
             reply.append('\n');
-            appendBotMoves(reply, game, channelId, selectedGameId, prefixMode, selfBotId);
+            appendBotMoves(reply, game, channelId, selectedGameId, selfBotId);
         } else {
-            reply.append(turnMessage(selectedGameId, game, prefixMode));
+            reply.append(turnMessage(selectedGameId, game));
         }
 
         return CommandResponse.publicMessage(reply.toString());
     }
 
-    private GameSelection selectGame(long userId, long channelId, Integer requestedGameId, boolean prefixMode) {
+    private GameSelection selectGame(long userId, long channelId, Integer requestedGameId) {
         Map<Integer, Connect4Game> channelGames = gamesByChannel.get(channelId);
         if (channelGames == null || channelGames.isEmpty()) {
-            return GameSelection.error("No active game in this channel. Start one with " + startUsage(prefixMode) + ".");
+            return GameSelection.error("No active game in this channel. Start one with " + startUsage() + ".");
         }
 
         if (requestedGameId != null) {
@@ -357,14 +359,14 @@ public class Connect4CommandListener extends ListenerAdapter {
             return GameSelection.error("You're not in any active game in this channel.");
         }
         if (playableGames.size() > 1) {
-            return GameSelection.error("Multiple active games match. Specify game number with " + gameUsage(prefixMode) + ".");
+            return GameSelection.error("Multiple active games match. Specify game number with " + gameUsage() + ".");
         }
 
         Map.Entry<Integer, Connect4Game> selected = playableGames.get(0);
         return GameSelection.success(selected.getKey(), selected.getValue());
     }
 
-    private void appendBotMoves(StringBuilder reply, Connect4Game game, long channelId, int gameId, boolean prefixMode, long selfBotId) {
+    private void appendBotMoves(StringBuilder reply, Connect4Game game, long channelId, int gameId, long selfBotId) {
         int moves = 0;
         while (!game.isFinished() && game.getCurrentTurn() == selfBotId) {
             String botMove = game.chooseBotMove();
@@ -390,7 +392,7 @@ public class Connect4CommandListener extends ListenerAdapter {
             reply.append(codeBlock(game.renderBoard())).append('\n');
 
             if (!appendFinishedOrDraw(reply, game, botResult, channelId, gameId)) {
-                reply.append(turnMessage(gameId, game, prefixMode));
+                reply.append(turnMessage(gameId, game));
             }
         }
     }
@@ -421,19 +423,10 @@ public class Connect4CommandListener extends ListenerAdapter {
         }
     }
 
-    private CommandResponse helpResponse(boolean prefixMode) {
-        StringBuilder message = new StringBuilder();
-        message.append(String.format("Start game: %s%nPlay move: %s%n",
-                startUsage(prefixMode),
-                moveUsage(prefixMode)));
-
-        if (prefixFallbackEnabled) {
-            message.append("Slash also supported: `/connect4 player1:@User1 player2:@User2` and `/connect4 move:F7 game:1`.");
-        } else {
-            message.append("Slash only. Prefix fallback disabled because `MESSAGE_CONTENT` intent was unavailable.");
-        }
-
-        return CommandResponse.ephemeral(message.toString());
+    private CommandResponse helpResponse() {
+        return CommandResponse.ephemeral(String.format("Start game: %s%nPlay move: %s",
+                startUsage(),
+                moveUsage()));
     }
 
     private void reply(SlashCommandInteractionEvent event, CommandResponse response) {
@@ -448,20 +441,20 @@ public class Connect4CommandListener extends ListenerAdapter {
         return "```\n" + text + "\n```";
     }
 
-    private String startUsage(boolean prefixMode) {
-        return prefixMode ? "`!connect4 @User1 @User2` or `!connect4 @User1`" : "`/connect4 player1:@User1 player2:@User2`";
+    private String startUsage() {
+        return "`/connect4 player1:@User1 player2:@User2`";
     }
 
-    private String moveUsage(boolean prefixMode) {
-        return prefixMode ? "`!connect4 F7`, `!connect4 move F7`, or `!connect4 1 F7`" : "`/connect4 move:F7 game:1`";
+    private String moveUsage() {
+        return "`/connect4 move:F7 game:1`";
     }
 
-    private String gameUsage(boolean prefixMode) {
-        return prefixMode ? "`!connect4 1 F7`" : "`game:1`";
+    private String gameUsage() {
+        return "`game:1`";
     }
 
-    private String turnMessage(int gameId, Connect4Game game, boolean prefixMode) {
-        return String.format("Game #%d turn: <@%d> (use %s)", gameId, game.getCurrentTurn(), moveUsage(prefixMode));
+    private String turnMessage(int gameId, Connect4Game game) {
+        return String.format("Game #%d turn: <@%d> (use %s)", gameId, game.getCurrentTurn(), moveUsage());
     }
 
     private Integer gameIdFromOption(OptionMapping option) {
@@ -475,28 +468,6 @@ public class Connect4CommandListener extends ListenerAdapter {
         return (int) value;
     }
 
-    private ParsedMoveCommand parsePrefixMove(String raw) {
-        if (raw == null) {
-            return new ParsedMoveCommand(null, null);
-        }
-
-        String trimmed = raw.trim();
-        String[] parts = trimmed.split("\\s+", 2);
-        if (parts.length == 2) {
-            String gamePart = parts[0].startsWith("#") ? parts[0].substring(1) : parts[0];
-            try {
-                int gameId = Integer.parseInt(gamePart);
-                if (gameId > 0) {
-                    return new ParsedMoveCommand(gameId, parts[1].trim());
-                }
-            } catch (NumberFormatException ignored) {
-                return new ParsedMoveCommand(null, trimmed);
-            }
-        }
-
-        return new ParsedMoveCommand(null, trimmed);
-    }
-
     private record CommandResponse(String message, boolean ephemeral) {
         static CommandResponse publicMessage(String message) {
             return new CommandResponse(message, false);
@@ -505,9 +476,6 @@ public class Connect4CommandListener extends ListenerAdapter {
         static CommandResponse ephemeral(String message) {
             return new CommandResponse(message, true);
         }
-    }
-
-    private record ParsedMoveCommand(Integer gameId, String moveText) {
     }
 
     private record GameSelection(boolean valid, int gameId, Connect4Game game, String errorMessage) {
