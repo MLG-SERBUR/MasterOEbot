@@ -224,8 +224,6 @@ public class MarkovListener extends ListenerAdapter {
             return;
         }
 
-        boolean responseAllowed = shouldRespondAfterDampening(channelId);
-
         boolean isBot = message.getAuthor().isBot();
 
         if (!isBot) {
@@ -264,6 +262,13 @@ public class MarkovListener extends ListenerAdapter {
             channelsNeedingScrub.add(channelId);
         }
 
+        // Dampening only tracks direct addresses. Regular messages neither
+        // consume budget nor get blocked.
+        boolean responseAllowed = true;
+        if (directlyAddressed) {
+            responseAllowed = shouldRespondAfterDampening(channelId);
+        }
+
         if (responseAllowed) {
             if (directlyAddressed) {
                 System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName) + " mentionsEveryone=" + mentionsEveryone);
@@ -284,16 +289,28 @@ public class MarkovListener extends ListenerAdapter {
         }
 
         MessageReference reference = message.getMessageReference();
+        final boolean syncDirect = directlyAddressed;
+        final boolean syncAllowed = responseAllowed;
         if (reference != null && message.getReferencedMessage() == null) {
-            System.out.println("Attempting async resolve for message in channel " + channelId + " content='" + content + "' responseAllowed=" + responseAllowed + " isReplyToSelfSync=" + isReplyToSelfSync);
+            System.out.println("Attempting async resolve for message in channel " + channelId + " content='" + content + "' syncDirect=" + syncDirect + " syncAllowed=" + syncAllowed + " isReplyToSelfSync=" + isReplyToSelfSync);
             reference.resolve().queue(referenced -> {
                 boolean isSelf = isMessageFromSelf(referenced);
-                System.out.println("Async resolve result for channel " + channelId + " content='" + content + "' isSelf=" + isSelf + " responseAllowed=" + responseAllowed + " referencedAuthor=" + (referenced != null ? referenced.getAuthor().getEffectiveName() : "null") + " referencedContent='" + (referenced != null ? MarkovUtils.getDisplayNameContent(referenced) : "null") + "'");
-                if (responseAllowed && isSelf) {
+                // Sync-direct messages already counted. Only newly discovered
+                // direct replies consume dampening budget, at resolve time.
+                boolean asyncAllowed = true;
+                if (isSelf && !syncDirect) {
+                    asyncAllowed = shouldRespondAfterDampening(channelId);
+                } else if (isSelf) {
+                    asyncAllowed = syncAllowed;
+                }
+                System.out.println("Async resolve result for channel " + channelId + " content='" + content + "' isSelf=" + isSelf + " syncDirect=" + syncDirect + " asyncAllowed=" + asyncAllowed + " referencedAuthor=" + (referenced != null ? referenced.getAuthor().getEffectiveName() : "null") + " referencedContent='" + (referenced != null ? MarkovUtils.getDisplayNameContent(referenced) : "null") + "'");
+                if (asyncAllowed && isSelf && !syncDirect) {
                     System.out.println("Triggered async reply in channel " + channelId + " for content='" + content + "'");
                     sendTriggeredReply(event, channelId, content, referenced);
+                } else if (syncDirect) {
+                    System.out.println("Ignored async resolve in channel " + channelId + " content='" + content + "' reason=already-handled-sync-direct");
                 } else {
-                    String reason = !responseAllowed ? "dampened" : (!isSelf ? "not reply to self" : "unknown");
+                    String reason = !asyncAllowed ? "dampened" : (!isSelf ? "not reply to self" : "unknown");
                     System.out.println("Ignored async reply in channel " + channelId + " content='" + content + "' reason=" + reason);
                 }
             }, error -> {
