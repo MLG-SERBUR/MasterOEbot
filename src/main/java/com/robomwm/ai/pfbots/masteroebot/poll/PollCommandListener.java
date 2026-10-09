@@ -10,9 +10,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.robomwm.ai.pfbots.markov.GenerativeAiRequest;
 import com.robomwm.ai.pfbots.markov.GenerativeAiResponder;
+import com.robomwm.ai.pfbots.markov.MarkovListener;
 import com.robomwm.ai.pfbots.markov.MarkovManager;
 
-import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.interactions.commands.OptionMapping;
@@ -31,7 +31,7 @@ public class PollCommandListener extends ListenerAdapter {
     /** System prompt in code, like the other bot prompts. Single AI call decides everything. */
     static final String SYSTEM_PROMPT = """
             You create a Discord poll from a user's poll request and recent channel chat.
-            Recent chat lines are ordered oldest to newest in the format [timestamp] <DisplayName> message. The last line is the poll request in the format Poll request: "...".
+            Recent chat lines are ordered oldest to newest, each on its own line in the format <DisplayName> message. The last line is the poll request in the format Poll request: "...".
             Use the request as the main topic. Use chat context only to sharpen wording and options (inside jokes, current topics, names). Never expose chat contents the request did not ask about.
             Pick a short poll question (max 140 characters) and 2 to 10 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
             Pick durationHours as an integer from 1 to 168 that fits the request (default 24 when the request says nothing). Honor any duration named in the request.
@@ -39,8 +39,6 @@ public class PollCommandListener extends ListenerAdapter {
             {"question": "...", "options": ["...", "..."], "durationHours": 24}
             """;
 
-    static final int CONTEXT_SIZE = 20;
-    static final int MAX_HISTORY_LINE_LENGTH = 300;
     static final int MAX_QUESTION_LENGTH = 300;
     static final int MAX_OPTION_LENGTH = 55;
     static final int MAX_OPTIONS = 10;
@@ -95,15 +93,26 @@ public class PollCommandListener extends ListenerAdapter {
 
         String finalPrompt = prompt;
         long requesterId = event.getUser().getIdLong();
+        long channelId = event.getChannel().getIdLong();
         // Defer public: the AI call takes longer than the 3s interaction window.
+        // Context comes from the same AI-log history a regular reply uses.
         event.deferReply(false).queue(
-                ignored -> event.getChannel().getHistory().retrievePast(CONTEXT_SIZE).queue(
-                        messages -> generateFromHistory(event, requesterId, finalPrompt, formatHistory(messages)),
-                        error -> {
-                            System.err.println("Poll history fetch failed: " + error.getMessage());
-                            generateFromHistory(event, requesterId, finalPrompt, gatherFallbackContext(event));
-                        }),
+                ignored -> generateFromHistory(event, requesterId, finalPrompt, gatherRegularContext(channelId)),
                 error -> System.err.println("Poll defer failed: " + error.getMessage()));
+    }
+
+    /** Same history source a regular reply uses: AI log up to the responder token budget. */
+    private List<String> gatherRegularContext(long channelId) {
+        if (markovManager == null) {
+            return List.of();
+        }
+        try {
+            return new ArrayList<>(markovManager.getRecentMessagesForAiUntilTokenBudget(
+                    channelId, MarkovListener.gatherBudgetFor(generativeAiResponder), SYSTEM_PROMPT));
+        } catch (Exception e) {
+            System.err.println("Poll context gather failed: " + e.getMessage());
+            return List.of();
+        }
     }
 
     private void generateFromHistory(SlashCommandInteractionEvent event, long requesterId,
@@ -167,42 +176,6 @@ public class PollCommandListener extends ListenerAdapter {
                     System.err.println("Poll send failed: " + sendError.getMessage());
                     event.getHook().editOriginal("Couldn't post that poll, try again in a bit.").queue();
                 });
-    }
-
-    private List<String> gatherFallbackContext(SlashCommandInteractionEvent event) {
-        if (markovManager == null) {
-            return List.of();
-        }
-        try {
-            return new ArrayList<>(markovManager.getRecentMessagesForAi(
-                    event.getChannel().getIdLong(), CONTEXT_SIZE));
-        } catch (Exception e) {
-            System.err.println("Poll fallback context failed: " + e.getMessage());
-            return List.of();
-        }
-    }
-
-    /** Newest-first history to oldest-first "[timestamp] <author> content" lines. */
-    static List<String> formatHistory(List<Message> messages) {
-        List<String> lines = new ArrayList<>();
-        if (messages == null) {
-            return lines;
-        }
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            Message msg = messages.get(i);
-            String content = msg.getContentDisplay().strip();
-            if (content.isEmpty()) {
-                continue;
-            }
-            String author = msg.getMember() != null
-                    ? msg.getMember().getEffectiveName()
-                    : msg.getAuthor().getEffectiveName();
-            if (content.length() > MAX_HISTORY_LINE_LENGTH) {
-                content = content.substring(0, MAX_HISTORY_LINE_LENGTH);
-            }
-            lines.add("[" + msg.getTimeCreated().toInstant() + "] <" + author + "> " + content);
-        }
-        return lines;
     }
 
     /** Parse and validate the single AI response into a postable poll spec. */
