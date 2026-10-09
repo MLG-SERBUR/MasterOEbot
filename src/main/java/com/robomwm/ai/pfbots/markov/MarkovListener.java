@@ -259,9 +259,8 @@ public class MarkovListener extends ListenerAdapter {
         // Exclusive direct address: a message naming/pinging/replying to one
         // bot must not trigger the other bot. Random 0.001 replies below stay
         // independent per bot.
-        // NOTE: @everyone/@here never counts as direct address. With two bots
-        // sharing channels a mass ping would otherwise make both reply to
-        // every announcement, regardless of who else is mentioned.
+        // NOTE: @everyone/@here counts as direct address for every bot, so a
+        // mass ping makes both reply regardless of who else is mentioned.
         boolean selfNamed = containsAny(lowerContent, selfIdentifiers(botName));
         boolean otherNamed = containsAny(lowerContent, otherIdentifiers());
         boolean mentionsSelf = isMentioningSelf(message);
@@ -270,7 +269,7 @@ public class MarkovListener extends ListenerAdapter {
         // Explicit naming of another bot wins over reply-to-self: replying to
         // this bot while naming the other bot addresses the other bot.
         boolean selfReply = isReplyToSelfSync && !(otherNamed || mentionsOtherBot);
-        boolean directlyAddressed = selfExplicit || selfReply;
+        boolean directlyAddressed = selfExplicit || selfReply || mentionsEveryone;
 
         if (directlyAddressed) {
             firstInvocationTimeByChannel.putIfAbsent(channelId, System.currentTimeMillis());
