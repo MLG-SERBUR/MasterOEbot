@@ -91,12 +91,18 @@ public class PollCommandListener extends ListenerAdapter {
         }
 
         String finalPrompt = prompt;
-        long requesterId = event.getUser().getIdLong();
         long channelId = event.getChannel().getIdLong();
-        // Defer public: the AI call takes longer than the 3s interaction window.
-        // Context comes from the same AI-log history a regular reply uses.
-        event.deferReply(false).queue(
-                ignored -> generateFromHistory(event, requesterId, finalPrompt, gatherRegularContext(channelId)),
+        // Ephemeral ack: the command must be answered within 3s, but the AI
+        // call takes longer. The poll itself goes up later as its own public
+        // channel message. Context comes from the same AI-log history a
+        // regular reply uses.
+        event.deferReply(true).queue(
+                ignored -> {
+                    event.getHook().editOriginal("Making your poll...").queue(
+                            null,
+                            editError -> System.err.println("Poll ack edit failed: " + editError.getMessage()));
+                    generateFromHistory(event, finalPrompt, gatherRegularContext(channelId));
+                },
                 error -> System.err.println("Poll defer failed: " + error.getMessage()));
     }
 
@@ -114,7 +120,7 @@ public class PollCommandListener extends ListenerAdapter {
         }
     }
 
-    private void generateFromHistory(SlashCommandInteractionEvent event, long requesterId,
+    private void generateFromHistory(SlashCommandInteractionEvent event,
             String prompt, List<String> history) {
         List<String> aiMessages = new ArrayList<>(history);
         aiMessages.add("Poll request: \"" + prompt + "\"");
@@ -140,7 +146,7 @@ public class PollCommandListener extends ListenerAdapter {
                                     .queue(null, editError -> System.err.println("Poll error edit failed: " + editError.getMessage()));
                             return;
                         }
-                        postPoll(event, requesterId, prompt, spec);
+                        postPoll(event, spec);
                     });
         } catch (Exception e) {
             System.err.println("Poll generateReply threw: " + e);
@@ -148,7 +154,8 @@ public class PollCommandListener extends ListenerAdapter {
         }
     }
 
-    private void postPoll(SlashCommandInteractionEvent event, long requesterId, String prompt, PollSpec spec) {
+    /** Posts only the poll as its own public message: no user mention, no prompt echo. */
+    private void postPoll(SlashCommandInteractionEvent event, PollSpec spec) {
         MessagePollBuilder builder = new MessagePollBuilder(spec.question());
         for (String option : spec.options()) {
             builder.addAnswer(option);
@@ -163,18 +170,24 @@ public class PollCommandListener extends ListenerAdapter {
             return;
         }
 
-        String content = "\uD83D\uDCCA <@" + requesterId + ">: " + prompt;
-        if (content.length() > 2000) {
-            content = content.substring(0, 2000);
+        try {
+            event.getChannel().sendMessagePoll(poll).queue(
+                    sent -> {
+                        System.out.println("Poll posted in channel " + event.getChannel().getId()
+                                + " message " + sent.getId() + " (" + spec.options().size()
+                                + " options, " + spec.durationHours() + "h).");
+                        event.getHook().editOriginal("Poll posted!").queue(
+                                null,
+                                editError -> System.err.println("Poll confirmation edit failed: " + editError.getMessage()));
+                    },
+                    sendError -> {
+                        System.err.println("Poll send failed: " + sendError.getMessage());
+                        event.getHook().editOriginal("Couldn't post that poll here, try again in a bit.").queue();
+                    });
+        } catch (Exception e) {
+            System.err.println("Poll send threw: " + e.getMessage());
+            event.getHook().editOriginal("Couldn't post that poll here, try again in a bit.").queue();
         }
-        event.getHook().sendMessage(content).setPoll(poll).queue(
-                sent -> event.getHook().deleteOriginal().queue(
-                        null,
-                        deleteError -> System.err.println("Poll thinking-message delete failed: " + deleteError.getMessage())),
-                sendError -> {
-                    System.err.println("Poll send failed: " + sendError.getMessage());
-                    event.getHook().editOriginal("Couldn't post that poll, try again in a bit.").queue();
-                });
     }
 
     /** Parse and validate the single AI response into a postable poll spec. */

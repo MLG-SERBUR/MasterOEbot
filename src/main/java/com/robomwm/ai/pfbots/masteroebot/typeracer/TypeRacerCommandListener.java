@@ -221,16 +221,11 @@ public class TypeRacerCommandListener extends ListenerAdapter {
                     announceResults(event, game);
                 }
             } else if (result == TypeRacerGame.PlayerResult.WRONG_TEXT) {
-                event.getMessage().delete().queue();
+                // Never delete messages: wrong guesses stay visible, the
+                // reminder simply stays up as feedback.
                 event.getChannel().sendMessage(
                         String.format("<@%d> - that's not right, try again!", userId)
-                ).queue(q -> {
-                    try {
-                        Thread.sleep(3000);
-                        q.delete().queue();
-                    } catch (InterruptedException ignored) {
-                    }
-                });
+                ).queue();
             }
         }
     }
