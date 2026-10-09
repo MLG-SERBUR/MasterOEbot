@@ -1,5 +1,6 @@
 package com.robomwm.ai.pfbots.markov;
 
+import com.robomwm.ai.pfbots.bot.BotProfile;
 import com.robomwm.ai.pfbots.bot.BotRegistry;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Activity;
@@ -250,12 +251,26 @@ public class MarkovListener extends ListenerAdapter {
             }
         }
 
-        String botName = (jda != null && jda.getSelfUser() != null) ? jda.getSelfUser().getName().toLowerCase() : "masteroebot";
-        String lowerContent = content.toLowerCase();
+        String botName = (jda != null && jda.getSelfUser() != null) ? jda.getSelfUser().getName().toLowerCase(Locale.ROOT) : "masteroebot";
+        String lowerContent = content.toLowerCase(Locale.ROOT);
 
         boolean isReplyToSelfSync = isReplyToSelf(message);
         boolean mentionsEveryone = isMassMention(message, content);
-        boolean directlyAddressed = lowerContent.contains(botName) || isReplyToSelfSync || mentionsEveryone;
+        // Exclusive direct address: a message naming/pinging/replying to one
+        // bot must not trigger the other bot. Random 0.001 replies below stay
+        // independent per bot.
+        // NOTE: @everyone/@here never counts as direct address. With two bots
+        // sharing channels a mass ping would otherwise make both reply to
+        // every announcement, regardless of who else is mentioned.
+        boolean selfNamed = containsAny(lowerContent, selfIdentifiers(botName));
+        boolean otherNamed = containsAny(lowerContent, otherIdentifiers());
+        boolean mentionsSelf = isMentioningSelf(message);
+        boolean mentionsOtherBot = isMentioningOtherBot(message);
+        boolean selfExplicit = selfNamed || mentionsSelf;
+        // Explicit naming of another bot wins over reply-to-self: replying to
+        // this bot while naming the other bot addresses the other bot.
+        boolean selfReply = isReplyToSelfSync && !(otherNamed || mentionsOtherBot);
+        boolean directlyAddressed = selfExplicit || selfReply;
 
         if (directlyAddressed) {
             firstInvocationTimeByChannel.putIfAbsent(channelId, System.currentTimeMillis());
@@ -271,7 +286,7 @@ public class MarkovListener extends ListenerAdapter {
 
         if (responseAllowed) {
             if (directlyAddressed) {
-                System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName) + " mentionsEveryone=" + mentionsEveryone);
+                System.out.println("Triggered reply in channel " + channelId + " for message '" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " selfNamed=" + selfNamed + " otherNamed=" + otherNamed + " mentionsEveryone=" + mentionsEveryone);
                 sendTriggeredReply(event, channelId, content, message.getReferencedMessage());
                 return;
             } else if (rand.nextDouble() < 0.001) {
@@ -284,33 +299,37 @@ public class MarkovListener extends ListenerAdapter {
             }
         } else {
             if (directlyAddressed) {
-                System.out.println("Ignored directlyAddressed message in channel " + channelId + " due to dampening: content='" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " botNameContains=" + lowerContent.contains(botName) + " mentionsEveryone=" + mentionsEveryone);
+                System.out.println("Ignored directlyAddressed message in channel " + channelId + " due to dampening: content='" + content + "' from " + message.getAuthor().getEffectiveName() + " isReplyToSelfSync=" + isReplyToSelfSync + " selfNamed=" + selfNamed + " otherNamed=" + otherNamed + " mentionsEveryone=" + mentionsEveryone);
             }
         }
 
         MessageReference reference = message.getMessageReference();
         final boolean syncDirect = directlyAddressed;
         final boolean syncAllowed = responseAllowed;
+        // Captured for async reply-to-self: explicit naming of the other bot
+        // suppresses a late-discovered reply trigger too.
+        final boolean asyncSuppressedByOther = (otherNamed || mentionsOtherBot) && !selfExplicit;
         if (reference != null && message.getReferencedMessage() == null) {
             System.out.println("Attempting async resolve for message in channel " + channelId + " content='" + content + "' syncDirect=" + syncDirect + " syncAllowed=" + syncAllowed + " isReplyToSelfSync=" + isReplyToSelfSync);
             reference.resolve().queue(referenced -> {
                 boolean isSelf = isMessageFromSelf(referenced);
+                boolean suppressed = asyncSuppressedByOther;
                 // Sync-direct messages already counted. Only newly discovered
                 // direct replies consume dampening budget, at resolve time.
                 boolean asyncAllowed = true;
                 if (isSelf && !syncDirect) {
-                    asyncAllowed = shouldRespondAfterDampening(channelId);
+                    asyncAllowed = !suppressed && shouldRespondAfterDampening(channelId);
                 } else if (isSelf) {
                     asyncAllowed = syncAllowed;
                 }
-                System.out.println("Async resolve result for channel " + channelId + " content='" + content + "' isSelf=" + isSelf + " syncDirect=" + syncDirect + " asyncAllowed=" + asyncAllowed + " referencedAuthor=" + (referenced != null ? referenced.getAuthor().getEffectiveName() : "null") + " referencedContent='" + (referenced != null ? MarkovUtils.getDisplayNameContent(referenced) : "null") + "'");
-                if (asyncAllowed && isSelf && !syncDirect) {
+                System.out.println("Async resolve result for channel " + channelId + " content='" + content + "' isSelf=" + isSelf + " syncDirect=" + syncDirect + " asyncAllowed=" + asyncAllowed + " suppressedByOther=" + suppressed + " referencedAuthor=" + (referenced != null ? referenced.getAuthor().getEffectiveName() : "null") + " referencedContent='" + (referenced != null ? MarkovUtils.getDisplayNameContent(referenced) : "null") + "'");
+                if (asyncAllowed && isSelf && !syncDirect && !suppressed) {
                     System.out.println("Triggered async reply in channel " + channelId + " for content='" + content + "'");
                     sendTriggeredReply(event, channelId, content, referenced);
                 } else if (syncDirect) {
                     System.out.println("Ignored async resolve in channel " + channelId + " content='" + content + "' reason=already-handled-sync-direct");
                 } else {
-                    String reason = !asyncAllowed ? "dampened" : (!isSelf ? "not reply to self" : "unknown");
+                    String reason = suppressed ? "other-bot-addressed" : (!asyncAllowed ? "dampened" : (!isSelf ? "not reply to self" : "unknown"));
                     System.out.println("Ignored async reply in channel " + channelId + " content='" + content + "' reason=" + reason);
                 }
             }, error -> {
@@ -893,6 +912,88 @@ public class MarkovListener extends ListenerAdapter {
                 && jda != null
                 && jda.getSelfUser() != null
                 && message.getAuthor().getIdLong() == jda.getSelfUser().getIdLong();
+    }
+
+    private long selfId() {
+        try {
+            if (jda != null && jda.getSelfUser() != null) return jda.getSelfUser().getIdLong();
+        } catch (Exception ignored) {
+        }
+        return -1L;
+    }
+
+    /** True when message pings this bot's own Discord user. */
+    private boolean isMentioningSelf(Message message) {
+        long self = selfId();
+        if (message == null || self == -1L) return false;
+        try {
+            return message.getMentions().getUsers().stream().anyMatch(u -> u.getIdLong() == self);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** True when message pings any other bot account (e.g. the sibling bot). */
+    private boolean isMentioningOtherBot(Message message) {
+        long self = selfId();
+        if (message == null) return false;
+        try {
+            return message.getMentions().getUsers().stream()
+                    .anyMatch(u -> u.getIdLong() != self && u.isBot());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void addIdentifiers(Set<String> out, BotProfile profile) {
+        if (profile == null) return;
+        addLower(out, profile.key());
+        addLower(out, profile.displayName());
+        String tag = profile.botTag() != null ? profile.botTag().trim() : null;
+        addLower(out, tag);
+        if (tag != null && tag.startsWith("<") && tag.endsWith(">") && tag.length() > 2) {
+            addLower(out, tag.substring(1, tag.length() - 1));
+        }
+    }
+
+    private static void addLower(Set<String> out, String value) {
+        if (value == null) return;
+        String v = value.trim().toLowerCase(Locale.ROOT);
+        if (!v.isEmpty()) out.add(v);
+    }
+
+    /** Name forms addressing this listener (profile names plus live username). */
+    private Set<String> selfIdentifiers(String liveBotNameLower) {
+        Set<String> out = new HashSet<>();
+        for (BotProfile profile : BotRegistry.PROFILES) {
+            if (profile != null && profile.key() != null && profile.key().equals(botKey)) {
+                addIdentifiers(out, profile);
+            }
+        }
+        addLower(out, liveBotNameLower);
+        try {
+            if (botDisplayName != null) addLower(out, botDisplayName);
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    /** Name forms addressing any bot except this listener. */
+    private Set<String> otherIdentifiers() {
+        Set<String> out = new HashSet<>();
+        for (BotProfile profile : BotRegistry.PROFILES) {
+            if (profile == null || (profile.key() != null && profile.key().equals(botKey))) continue;
+            addIdentifiers(out, profile);
+        }
+        return out;
+    }
+
+    private static boolean containsAny(String lowerContent, Set<String> names) {
+        if (lowerContent == null || lowerContent.isEmpty() || names == null || names.isEmpty()) return false;
+        for (String name : names) {
+            if (!name.isEmpty() && lowerContent.contains(name)) return true;
+        }
+        return false;
     }
 
     private boolean isMassMention(Message message, String resolvedContent) {
