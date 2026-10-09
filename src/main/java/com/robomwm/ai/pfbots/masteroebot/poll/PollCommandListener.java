@@ -33,19 +33,18 @@ public class PollCommandListener extends ListenerAdapter {
             You create a Discord poll from a user's poll request and recent channel chat.
             Recent chat lines are ordered oldest to newest, each on its own line in the format <DisplayName> message. The last line is the poll request in the format Poll request: "...".
             Use the request as the main topic. Use chat context only to sharpen wording and options (inside jokes, current topics, names). Never expose chat contents the request did not ask about.
-            Pick a short poll question (max 140 characters) and 2 to 10 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
-            Pick durationHours as an integer from 1 to 168 that fits the request (default 24 when the request says nothing). Honor any duration named in the request.
+            Pick a short poll question (max 140 characters) and 2 to 5 distinct answer options (each max 55 characters). Options must be mutually distinct and directly answer the question.
+            You always pick durationHours as an integer from 1 to 24 that fits the request. Honor any duration named in the request.
             Return ONLY raw JSON, no markdown fences, no commentary, with exactly these keys:
-            {"question": "...", "options": ["...", "..."], "durationHours": 24}
+            {"question": "...", "options": ["...", "..."], "durationHours": 4}
             """;
 
     static final int MAX_QUESTION_LENGTH = 300;
     static final int MAX_OPTION_LENGTH = 55;
-    static final int MAX_OPTIONS = 10;
+    static final int MAX_OPTIONS = 5;
     static final int MIN_OPTIONS = 2;
     static final int MIN_DURATION_HOURS = 1;
-    static final int MAX_DURATION_HOURS = 168;
-    static final int DEFAULT_DURATION_HOURS = 24;
+    static final int MAX_DURATION_HOURS = 24;
     static final int AI_TIMEOUT_SECONDS = 60;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -227,15 +226,21 @@ public class PollCommandListener extends ListenerAdapter {
             throw new IllegalArgumentException("Poll JSON needs at least " + MIN_OPTIONS + " distinct options");
         }
 
-        int durationHours = DEFAULT_DURATION_HOURS;
         JsonNode durationNode = firstPresent(root, "durationHours", "duration_hours", "duration");
-        if (durationNode != null && durationNode.canConvertToInt()) {
-            durationHours = durationNode.asInt(DEFAULT_DURATION_HOURS);
-        } else if (durationNode != null && durationNode.isTextual()) {
+        if (durationNode == null) {
+            throw new IllegalArgumentException("Poll JSON missing durationHours");
+        }
+        int durationHours;
+        if (durationNode.canConvertToInt()) {
+            durationHours = durationNode.asInt();
+        } else if (durationNode.isTextual()) {
             try {
                 durationHours = Integer.parseInt(durationNode.asText("").strip());
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Poll JSON has non-numeric durationHours");
             }
+        } else {
+            throw new IllegalArgumentException("Poll JSON has non-numeric durationHours");
         }
         if (durationHours < MIN_DURATION_HOURS) {
             durationHours = MIN_DURATION_HOURS;

@@ -10,10 +10,10 @@ class PollCommandListenerTest {
     @Test
     void parsesValidJson() {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
-                "{\"question\": \"Best game?\", \"options\": [\"Chess\", \"Go\"], \"durationHours\": 48}");
+                "{\"question\": \"Best game?\", \"options\": [\"Chess\", \"Go\"], \"durationHours\": 12}");
         assertEquals("Best game?", spec.question());
         assertEquals(2, spec.options().size());
-        assertEquals(48, spec.durationHours());
+        assertEquals(12, spec.durationHours());
     }
 
     @Test
@@ -21,14 +21,20 @@ class PollCommandListenerTest {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
                 "```json\n{\"question\": \"Q?\", \"options\": [\"A\", \"A\", \"B\"], \"durationHours\": 999}\n```");
         assertEquals(2, spec.options().size());
-        assertEquals(168, spec.durationHours());
+        assertEquals(24, spec.durationHours());
     }
 
     @Test
-    void defaultsDurationWhenMissing() {
+    void capsOptionsAtFive() {
         PollCommandListener.PollSpec spec = PollCommandListener.parsePollSpec(
-                "{\"question\": \"Q?\", \"options\": [\"A\", \"B\"]}");
-        assertEquals(24, spec.durationHours());
+                "{\"question\": \"Q?\", \"options\": [\"A\", \"B\", \"C\", \"D\", \"E\", \"F\", \"G\"], \"durationHours\": 5}");
+        assertEquals(5, spec.options().size());
+    }
+
+    @Test
+    void rejectsMissingDuration() {
+        assertThrows(IllegalArgumentException.class,
+                () -> PollCommandListener.parsePollSpec("{\"question\": \"Q?\", \"options\": [\"A\", \"B\"]}"));
     }
 
     @Test
